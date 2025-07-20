@@ -5,12 +5,13 @@ import Client from '@/models/Client';
 // GET - Obtener cliente por ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const resolvedParams = await params;
   try {
     await connectDB();
     
-    const client = await Client.findById(params.id);
+    const client = await Client.findById(resolvedParams.id);
     
     if (!client) {
       return NextResponse.json(
@@ -32,8 +33,9 @@ export async function GET(
 // PUT - Actualizar cliente
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const resolvedParams = await params;
   try {
     await connectDB();
     
@@ -49,7 +51,7 @@ export async function PUT(
     // Verificar si ya existe otro cliente con el mismo CUIT
     const existingClient = await Client.findOne({ 
       cuit, 
-      _id: { $ne: params.id } 
+      _id: { $ne: resolvedParams.id } 
     });
     
     if (existingClient) {
@@ -60,7 +62,7 @@ export async function PUT(
     }
 
     const client = await Client.findByIdAndUpdate(
-      params.id,
+      resolvedParams.id,
       {
         name,
         company,
@@ -96,12 +98,13 @@ export async function PUT(
 // DELETE - Eliminar cliente
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const resolvedParams = await params;
   try {
     await connectDB();
     
-    const client = await Client.findByIdAndDelete(params.id);
+    const client = await Client.findByIdAndDelete(resolvedParams.id);
     
     if (!client) {
       return NextResponse.json(

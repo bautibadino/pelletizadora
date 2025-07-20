@@ -5,12 +5,13 @@ import { Check, ICheck } from '@/models/Check';
 // GET - Obtener un cheque específico
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const resolvedParams = await params;
   try {
     await connectDB();
     
-    const check = await Check.findById(params.id);
+    const check = await Check.findById(resolvedParams.id);
     
     if (!check) {
       return NextResponse.json(
@@ -32,8 +33,9 @@ export async function GET(
 // PUT - Actualizar un cheque
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const resolvedParams = await params;
   try {
     await connectDB();
     
@@ -52,7 +54,7 @@ export async function PUT(
       status
     } = body;
     
-    const check = await Check.findById(params.id);
+    const check = await Check.findById(resolvedParams.id);
     
     if (!check) {
       return NextResponse.json(
@@ -121,12 +123,13 @@ export async function PUT(
 // DELETE - Eliminar un cheque
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const resolvedParams = await params;
   try {
     await connectDB();
     
-    const check = await Check.findById(params.id);
+    const check = await Check.findById(resolvedParams.id);
     
     if (!check) {
       return NextResponse.json(
@@ -143,7 +146,7 @@ export async function DELETE(
       );
     }
     
-    await Check.findByIdAndDelete(params.id);
+    await Check.findByIdAndDelete(resolvedParams.id);
     
     return NextResponse.json({
       message: 'Cheque eliminado exitosamente'

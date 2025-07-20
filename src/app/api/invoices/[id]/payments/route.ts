@@ -20,10 +20,13 @@ export async function GET(
       );
     }
     
+    const totalPaid = invoice.payments.reduce((sum: number, payment: { amount: number }) => sum + payment.amount, 0);
+    const pendingAmount = invoice.total - totalPaid;
+    
     return NextResponse.json({
       payments: invoice.payments,
-      totalPaid: invoice.payments.reduce((sum: number, payment: { amount: number }) => sum + payment.amount, 0),
-      pendingAmount: invoice.getPendingAmount()
+      totalPaid,
+      pendingAmount: Math.max(0, pendingAmount)
     });
   } catch (error) {
     console.error('Get payments error:', error);
@@ -70,7 +73,9 @@ export async function POST(
     }
     
     // Verificar que el pago no exceda el monto pendiente
-    const pendingAmount = invoice.getPendingAmount();
+    const totalPaid = invoice.payments.reduce((sum: number, payment: { amount: number }) => sum + payment.amount, 0);
+    const pendingAmount = Math.max(0, invoice.total - totalPaid);
+    
     if (amount > pendingAmount) {
       return NextResponse.json(
         { error: `El monto del pago excede el monto pendiente ($${pendingAmount})` },
@@ -89,7 +94,17 @@ export async function POST(
     };
     
     // Agregar el pago a la factura
-    await invoice.addPayment(payment);
+    invoice.payments.push(payment);
+    
+    // Recalcular estado
+    const newTotalPaid = invoice.payments.reduce((sum: number, p: { amount: number }) => sum + p.amount, 0);
+    if (newTotalPaid >= invoice.total) {
+      invoice.status = 'pagado';
+    } else if (newTotalPaid > 0) {
+      invoice.status = 'parcial';
+    }
+    
+    await invoice.save();
     
     // Poblar datos del proveedor para la respuesta
     await invoice.populate('supplierId', 'businessName contact');
