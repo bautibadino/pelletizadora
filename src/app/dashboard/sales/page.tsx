@@ -1,0 +1,694 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { 
+  ShoppingCart, 
+  Plus, 
+  Search, 
+  Eye, 
+  DollarSign, 
+  ArrowLeft,
+  Filter,
+  RefreshCw,
+  Calendar,
+  User,
+  Package,
+  CheckCircle,
+  Clock,
+  AlertCircle
+} from 'lucide-react';
+
+interface Client {
+  _id: string;
+  name: string;
+  company: string;
+}
+
+interface Sale {
+  _id: string;
+  client: Client;
+  date: string;
+  presentation: string;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+  status: 'pending' | 'paid' | 'partial';
+  lot?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+interface StockItem {
+  _id: string;
+  presentation: string;
+  quantity: number;
+}
+
+export default function SalesPage() {
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [stock, setStock] = useState<StockItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [filters, setFilters] = useState({
+    clientId: '',
+    status: '',
+    dateFrom: '',
+    dateTo: '',
+  });
+  const router = useRouter();
+
+  const [formData, setFormData] = useState({
+    clientId: '',
+    presentation: 'Bolsa 25kg',
+    quantity: '',
+    unitPrice: '',
+    lot: '',
+    notes: '',
+  });
+
+  useEffect(() => {
+    loadSales();
+    loadClients();
+    loadStock();
+  }, [currentPage, filters]);
+
+  const loadSales = async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: '10',
+      });
+      
+      if (filters.clientId) params.append('clientId', filters.clientId);
+      if (filters.status) params.append('status', filters.status);
+      if (filters.dateFrom) params.append('dateFrom', filters.dateFrom);
+      if (filters.dateTo) params.append('dateTo', filters.dateTo);
+
+      const response = await fetch(`/api/sales?${params}`);
+      const data = await response.json();
+      
+      setSales(data.sales);
+      setTotalPages(data.pagination.pages);
+    } catch (error) {
+      console.error('Error loading sales:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadClients = async () => {
+    try {
+      const response = await fetch('/api/clients?limit=100');
+      const data = await response.json();
+      setClients(data.clients);
+    } catch (error) {
+      console.error('Error loading clients:', error);
+    }
+  };
+
+  const loadStock = async () => {
+    try {
+      const response = await fetch('/api/stock');
+      const data = await response.json();
+      setStock(data);
+    } catch (error) {
+      console.error('Error loading stock:', error);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      const response = await fetch('/api/sales', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+
+      if (response.ok) {
+        setFormData({
+          clientId: '',
+          presentation: 'Bolsa 25kg',
+          quantity: '',
+          unitPrice: '',
+          lot: '',
+          notes: '',
+        });
+        setShowAddForm(false);
+        loadSales();
+        loadStock(); // Recargar stock después de la venta
+      } else {
+        const error = await response.json();
+        alert(error.error);
+      }
+    } catch (error) {
+      console.error('Error creating sale:', error);
+      alert('Error al crear la venta');
+    }
+  };
+
+  const getStockAvailable = (presentation: string) => {
+    const stockItem = stock.find(item => item.presentation === presentation);
+    return stockItem ? stockItem.quantity : 0;
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'paid':
+        return <CheckCircle className="h-4 w-4 text-green-600" />;
+      case 'partial':
+        return <Clock className="h-4 w-4 text-yellow-600" />;
+      case 'pending':
+        return <AlertCircle className="h-4 w-4 text-red-600" />;
+      default:
+        return <AlertCircle className="h-4 w-4 text-gray-600" />;
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'paid':
+        return 'Pagada';
+      case 'partial':
+        return 'Parcial';
+      case 'pending':
+        return 'Pendiente';
+      default:
+        return 'Desconocido';
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'paid':
+        return 'bg-green-100 text-green-800';
+      case 'partial':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'pending':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('es-AR');
+  };
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS',
+    }).format(amount);
+  };
+
+  if (loading && sales.length === 0) {
+    return <div className="min-h-screen flex items-center justify-center">Cargando...</div>;
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center">
+              <button
+                onClick={() => router.push('/dashboard')}
+                className="mr-4 p-2 hover:bg-gray-100 rounded-lg"
+              >
+                <ArrowLeft className="h-5 w-5 text-gray-600" />
+              </button>
+              <ShoppingCart className="h-8 w-8 text-purple-600 mr-3" />
+              <h1 className="text-xl font-semibold text-gray-900">
+                Gestión de Ventas
+              </h1>
+            </div>
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700"
+            >
+              <Plus className="h-4 w-4 inline mr-2" />
+              Nueva Venta
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Filters */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Cliente
+              </label>
+              <select
+                value={filters.clientId}
+                onChange={(e) => setFilters({ ...filters, clientId: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+              >
+                <option value="">Todos los clientes</option>
+                {clients.map((client) => (
+                  <option key={client._id} value={client._id}>
+                    {client.name} - {client.company}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Estado
+              </label>
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+              >
+                <option value="">Todos los estados</option>
+                <option value="pending">Pendiente</option>
+                <option value="partial">Parcial</option>
+                <option value="paid">Pagada</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Desde
+              </label>
+              <input
+                type="date"
+                value={filters.dateFrom}
+                onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Hasta
+              </label>
+              <input
+                type="date"
+                value={filters.dateTo}
+                onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={loadSales}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                <RefreshCw className="h-4 w-4 inline mr-2" />
+                Filtrar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Add Sale Form */}
+        {showAddForm && (
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Nueva Venta
+            </h3>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cliente *
+                  </label>
+                  <select
+                    value={formData.clientId}
+                    onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                    required
+                  >
+                    <option value="">Seleccionar cliente</option>
+                    {clients.map((client) => (
+                      <option key={client._id} value={client._id}>
+                        {client.name} - {client.company}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Presentación *
+                  </label>
+                  <select
+                    value={formData.presentation}
+                    onChange={(e) => setFormData({ ...formData, presentation: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                    required
+                  >
+                    <option value="Bolsa 25kg">Bolsa 25kg (Stock: {getStockAvailable('Bolsa 25kg')})</option>
+                    <option value="Big Bag">Big Bag (Stock: {getStockAvailable('Big Bag')})</option>
+                    <option value="Granel">Granel (Stock: {getStockAvailable('Granel')})</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cantidad *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={getStockAvailable(formData.presentation)}
+                    value={formData.quantity}
+                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
+                    placeholder="Ingrese cantidad"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Stock disponible: {getStockAvailable(formData.presentation)}
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Precio Unitario *
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.unitPrice}
+                    onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
+                    placeholder="0.00"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Lote (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.lot}
+                    onChange={(e) => setFormData({ ...formData, lot: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
+                    placeholder="Número de lote"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notas (opcional)
+                </label>
+                <textarea
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
+                  rows={3}
+                  placeholder="Notas adicionales"
+                />
+              </div>
+              {formData.quantity && formData.unitPrice && (
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Resumen de Venta</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Cantidad:</span>
+                      <span className="ml-2 font-medium">{formData.quantity}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Precio unitario:</span>
+                      <span className="ml-2 font-medium">{formatCurrency(parseFloat(formData.unitPrice) || 0)}</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-gray-600">Total:</span>
+                      <span className="ml-2 font-bold text-lg text-purple-600">
+                        {formatCurrency((parseFloat(formData.quantity) || 0) * (parseFloat(formData.unitPrice) || 0))}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!formData.clientId || !formData.quantity || !formData.unitPrice}
+                  className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Crear Venta
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Sales Table */}
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h3 className="text-lg font-semibold text-gray-900">
+              Ventas ({sales.length})
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Cliente
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Fecha
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Producto
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Cantidad
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Total
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Estado
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Acciones
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {sales.map((sale) => (
+                  <tr key={sale._id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="h-10 w-10 bg-purple-100 rounded-full flex items-center justify-center">
+                          <User className="h-5 w-5 text-purple-600" />
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-sm font-medium text-gray-900">
+                            {sale.client.name}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {sale.client.company}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatDate(sale.date)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <Package className="h-4 w-4 text-gray-400 mr-2" />
+                        <span className="text-sm text-gray-900">{sale.presentation}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {sale.quantity}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {formatCurrency(sale.totalAmount)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(sale.status)}`}>
+                        {getStatusIcon(sale.status)}
+                        <span className="ml-1">{getStatusText(sale.status)}</span>
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end space-x-2">
+                        <button
+                          onClick={() => setSelectedSale(sale)}
+                          className="text-blue-600 hover:text-blue-900 p-1"
+                          title="Ver detalles"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        {sale.status !== 'paid' && (
+                          <button
+                            onClick={() => router.push(`/dashboard/sales/${sale._id}/payments`)}
+                            className="text-green-600 hover:text-green-900 p-1"
+                            title="Registrar pago"
+                          >
+                            <DollarSign className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6 mt-4 rounded-lg shadow">
+            <div className="flex-1 flex justify-between sm:hidden">
+              <button
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+                className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+              >
+                Siguiente
+              </button>
+            </div>
+            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm text-gray-700">
+                  Página <span className="font-medium">{currentPage}</span> de{' '}
+                  <span className="font-medium">{totalPages}</span>
+                </p>
+              </div>
+              <div>
+                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
+                  <button
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Siguiente
+                  </button>
+                </nav>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Sale Details Modal */}
+        {selectedSale && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Detalles de Venta
+                  </h3>
+                  <button
+                    onClick={() => setSelectedSale(null)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Cliente:</label>
+                    <p className="text-sm text-gray-900">{selectedSale.client.name}</p>
+                    <p className="text-xs text-gray-500">{selectedSale.client.company}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Fecha:</label>
+                    <p className="text-sm text-gray-900">{formatDate(selectedSale.date)}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Producto:</label>
+                    <p className="text-sm text-gray-900">{selectedSale.presentation}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Cantidad:</label>
+                    <p className="text-sm text-gray-900">{selectedSale.quantity}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Precio unitario:</label>
+                    <p className="text-sm text-gray-900">{formatCurrency(selectedSale.unitPrice)}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Total:</label>
+                    <p className="text-sm font-bold text-purple-600">{formatCurrency(selectedSale.totalAmount)}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Estado:</label>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(selectedSale.status)}`}>
+                      {getStatusIcon(selectedSale.status)}
+                      <span className="ml-1">{getStatusText(selectedSale.status)}</span>
+                    </span>
+                  </div>
+                  {selectedSale.lot && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">Lote:</label>
+                      <p className="text-sm text-gray-900">{selectedSale.lot}</p>
+                    </div>
+                  )}
+                  {selectedSale.notes && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">Notas:</label>
+                      <p className="text-sm text-gray-900">{selectedSale.notes}</p>
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-end mt-6 space-x-3">
+                  {selectedSale.status !== 'paid' && (
+                    <button
+                      onClick={() => {
+                        setSelectedSale(null);
+                        router.push(`/dashboard/sales/${selectedSale._id}/payments`);
+                      }}
+                      className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700"
+                    >
+                      Registrar Pago
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setSelectedSale(null)}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+} 
