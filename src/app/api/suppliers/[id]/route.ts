@@ -38,11 +38,14 @@ export async function PUT(
   try {
     await connectDB();
     
-    const { name, company, cuit, contact, email, address, phone } = await request.json();
+    const body = await request.json();
+    console.log('Received supplier update data:', body);
+    
+    const { name, cuit, contact, email, address, phone } = body;
 
-    if (!name || !company || !cuit || !contact) {
+    if (!name || !cuit || !contact) {
       return NextResponse.json(
-        { error: 'Nombre, empresa, CUIT y contacto son requeridos' },
+        { error: 'Nombre de empresa, CUIT y contacto son requeridos' },
         { status: 400 }
       );
     }

@@ -64,7 +64,6 @@ export default function SalesPage() {
 
   const [formData, setFormData] = useState({
     clientId: '',
-    presentation: 'Bolsa 25kg',
     quantity: '',
     unitPrice: '',
     lot: '',
@@ -116,7 +115,9 @@ export default function SalesPage() {
     try {
       const response = await fetch('/api/stock');
       const data = await response.json();
-      setStock(data);
+      // Filtrar solo el stock de Granel
+      const granelStock = data.filter((item: StockItem) => item.presentation === 'Granel');
+      setStock(granelStock);
     } catch (error) {
       console.error('Error loading stock:', error);
     }
@@ -125,19 +126,35 @@ export default function SalesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (!formData.clientId || !formData.quantity || !formData.unitPrice) {
+      alert('Por favor complete todos los campos requeridos');
+      return;
+    }
+
+    // Verificar stock disponible de Granel
+    const stockAvailable = getStockAvailable();
+    const quantityRequested = parseFloat(formData.quantity);
+    if (quantityRequested > stockAvailable) {
+      alert(`Stock insuficiente. Disponible: ${stockAvailable.toFixed(2)} kg, solicitado: ${quantityRequested.toFixed(2)} kg`);
+      return;
+    }
+
     try {
       const response = await fetch('/api/sales', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          presentation: 'Granel', // Siempre Granel
+          quantity: formData.quantity, // Mantener en kg
+        }),
       });
 
       if (response.ok) {
         setFormData({
           clientId: '',
-          presentation: 'Bolsa 25kg',
           quantity: '',
           unitPrice: '',
           lot: '',
@@ -146,6 +163,7 @@ export default function SalesPage() {
         setShowAddForm(false);
         loadSales();
         loadStock(); // Recargar stock después de la venta
+        alert('Venta creada exitosamente');
       } else {
         const error = await response.json();
         alert(error.error);
@@ -156,8 +174,8 @@ export default function SalesPage() {
     }
   };
 
-  const getStockAvailable = (presentation: string) => {
-    const stockItem = stock.find(item => item.presentation === presentation);
+  const getStockAvailable = () => {
+    const stockItem = stock.find(item => item.presentation === 'Granel');
     return stockItem ? stockItem.quantity : 0;
   };
 
@@ -230,7 +248,7 @@ export default function SalesPage() {
               </button>
               <ShoppingCart className="h-8 w-8 text-purple-600 mr-3" />
               <h1 className="text-xl font-semibold text-gray-900">
-                Gestión de Ventas
+                Ventas de Pellets (Granel)
               </h1>
             </div>
             <button
@@ -246,6 +264,24 @@ export default function SalesPage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Stock Overview */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                Stock Disponible - Granel
+              </h3>
+              <p className="text-2xl font-bold text-blue-600">
+                {getStockAvailable().toFixed(2)} kg
+              </p>
+              <p className="text-sm text-gray-600">kilogramos disponibles para venta</p>
+            </div>
+            <div className="p-3 bg-blue-100 rounded-lg">
+              <Package className="h-8 w-8 text-blue-600" />
+            </div>
+          </div>
+        </div>
+
         {/* Filters */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex flex-col md:flex-row gap-4">
@@ -315,143 +351,167 @@ export default function SalesPage() {
           </div>
         </div>
 
-        {/* Add Sale Form */}
+        {/* Modal de Nueva Venta */}
         {showAddForm && (
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Nueva Venta
-            </h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Cliente *
-                  </label>
-                  <select
-                    value={formData.clientId}
-                    onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
-                    required
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div className="relative top-10 mx-auto p-6 border w-[500px] shadow-lg rounded-md bg-white">
+              <div className="mt-3">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-semibold text-gray-900">
+                    Nueva Venta (Granel)
+                  </h3>
+                  <button
+                    onClick={() => setShowAddForm(false)}
+                    className="text-gray-400 hover:text-gray-600"
                   >
-                    <option value="">Seleccionar cliente</option>
-                    {clients.map((client) => (
-                      <option key={client._id} value={client._id}>
-                        {client.name} - {client.company}
-                      </option>
-                    ))}
-                  </select>
+                    <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Presentación *
-                  </label>
-                  <select
-                    value={formData.presentation}
-                    onChange={(e) => setFormData({ ...formData, presentation: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
-                    required
-                  >
-                    <option value="Bolsa 25kg">Bolsa 25kg (Stock: {getStockAvailable('Bolsa 25kg')})</option>
-                    <option value="Big Bag">Big Bag (Stock: {getStockAvailable('Big Bag')})</option>
-                    <option value="Granel">Granel (Stock: {getStockAvailable('Granel')})</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Cantidad *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max={getStockAvailable(formData.presentation)}
-                    value={formData.quantity}
-                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
-                    placeholder="Ingrese cantidad"
-                    required
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Stock disponible: {getStockAvailable(formData.presentation)}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Precio Unitario *
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.unitPrice}
-                    onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
-                    placeholder="0.00"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Lote (opcional)
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.lot}
-                    onChange={(e) => setFormData({ ...formData, lot: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
-                    placeholder="Número de lote"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notas (opcional)
-                </label>
-                <textarea
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
-                  rows={3}
-                  placeholder="Notas adicionales"
-                />
-              </div>
-              {formData.quantity && formData.unitPrice && (
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Resumen de Venta</h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-600">Cantidad:</span>
-                      <span className="ml-2 font-medium">{formData.quantity}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">Precio unitario:</span>
-                      <span className="ml-2 font-medium">{formatCurrency(parseFloat(formData.unitPrice) || 0)}</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-gray-600">Total:</span>
-                      <span className="ml-2 font-bold text-lg text-purple-600">
-                        {formatCurrency((parseFloat(formData.quantity) || 0) * (parseFloat(formData.unitPrice) || 0))}
+                
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  {/* Cliente */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Cliente *
+                    </label>
+                    <select
+                      value={formData.clientId}
+                      onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                      required
+                    >
+                      <option value="">Seleccionar cliente</option>
+                      {clients.map((client) => (
+                        <option key={client._id} value={client._id}>
+                          {client.name} - {client.company}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Stock Disponible */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Stock Disponible
+                    </label>
+                    <div className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-md">
+                      <span className="text-sm font-medium text-gray-900">
+                        {getStockAvailable().toFixed(2)} kg (Granel)
                       </span>
                     </div>
                   </div>
-                </div>
-              )}
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={!formData.clientId || !formData.quantity || !formData.unitPrice}
-                  className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Crear Venta
-                </button>
+
+                  {/* Cantidad en kg */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Cantidad (kg) *
+                    </label>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={formData.quantity}
+                      onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                      placeholder="Ingrese cantidad en kilogramos"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                      required
+                    />
+                  </div>
+
+                  {/* Precio Unitario */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Precio Unitario (por kg) *
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={formData.unitPrice}
+                      onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value })}
+                      placeholder="Precio por kilogramo"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                      required
+                    />
+                  </div>
+
+                  {/* Lote */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Lote (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.lot}
+                      onChange={(e) => setFormData({ ...formData, lot: e.target.value })}
+                      placeholder="Número de lote"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                    />
+                  </div>
+
+                  {/* Notas */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Notas (opcional)
+                    </label>
+                    <textarea
+                      value={formData.notes}
+                      onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                      rows={3}
+                      placeholder="Notas adicionales sobre la venta..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                    />
+                  </div>
+
+                  {/* Resumen de la Venta */}
+                  {(formData.quantity || formData.unitPrice) && (
+                    <div className="bg-gray-50 p-4 rounded-lg border">
+                      <h4 className="text-sm font-medium text-gray-700 mb-3">Resumen de la Venta</h4>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-600">Cantidad:</span>
+                          <span className="ml-2 font-medium">
+                            {formData.quantity ? `${formData.quantity} kg` : '-'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Precio unitario:</span>
+                          <span className="ml-2 font-medium">
+                            {formData.unitPrice ? `${formatCurrency(parseFloat(formData.unitPrice))}/kg` : '-'}
+                          </span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-gray-600">Total:</span>
+                          <span className="ml-2 font-bold text-lg text-purple-600">
+                            {formatCurrency((parseFloat(formData.quantity) || 0) * (parseFloat(formData.unitPrice) || 0))}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Botones */}
+                  <div className="flex justify-end space-x-3 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddForm(false)}
+                      className="px-6 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!formData.clientId || !formData.quantity || !formData.unitPrice}
+                      className="px-6 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Crear Venta
+                    </button>
+                  </div>
+                </form>
               </div>
-            </form>
+            </div>
           </div>
         )}
 
@@ -473,10 +533,7 @@ export default function SalesPage() {
                     Fecha
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Producto
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Cantidad
+                    Cantidad (kg)
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Total
@@ -510,14 +567,8 @@ export default function SalesPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {formatDate(sale.date)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <Package className="h-4 w-4 text-gray-400 mr-2" />
-                        <span className="text-sm text-gray-900">{sale.presentation}</span>
-                      </div>
-                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {sale.quantity}
+                      {sale.quantity} kg
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {formatCurrency(sale.totalAmount)}
@@ -635,11 +686,11 @@ export default function SalesPage() {
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Cantidad:</label>
-                    <p className="text-sm text-gray-900">{selectedSale.quantity}</p>
+                    <p className="text-sm text-gray-900">{selectedSale.quantity} kg</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Precio unitario:</label>
-                    <p className="text-sm text-gray-900">{formatCurrency(selectedSale.unitPrice)}</p>
+                    <p className="text-sm text-gray-900">{formatCurrency(selectedSale.unitPrice)}/kg</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Total:</label>

@@ -19,9 +19,11 @@ import {
   Filter,
   RefreshCw,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  Truck
 } from 'lucide-react';
 import { useToast, ToastContainer } from '@/components/Toast';
+import { roundToTwoDecimals, formatCurrency } from '@/lib/utils';
 
 interface Check {
   _id: string;
@@ -32,10 +34,21 @@ interface Check {
   dueDate: string;
   receivedFrom: string;
   issuedBy: string;
-  status: 'pendiente' | 'cobrado' | 'rechazado' | 'vencido';
+  status: 'pendiente' | 'cobrado' | 'rechazado' | 'vencido' | 'entregado';
   bankName?: string;
   accountNumber?: string;
   notes?: string;
+  // Información de entrega
+  deliveredTo?: string;
+  deliveredDate?: string;
+  deliveredFor?: string;
+  invoiceId?: {
+    _id: string;
+    invoiceNumber: string;
+    supplierId: {
+      businessName: string;
+    };
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -45,6 +58,7 @@ interface CheckStats {
   cobrado?: { count: number; totalAmount: number };
   rechazado?: { count: number; totalAmount: number };
   vencido?: { count: number; totalAmount: number };
+  entregado?: { count: number; totalAmount: number };
 }
 
 export default function ChecksPage() {
@@ -144,7 +158,10 @@ export default function ChecksPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          amount: roundToTwoDecimals(Number(formData.amount))
+        }),
       });
 
       if (response.ok) {
@@ -246,6 +263,7 @@ export default function ChecksPage() {
       case 'cobrado': return 'bg-green-100 text-green-800';
       case 'rechazado': return 'bg-red-100 text-red-800';
       case 'vencido': return 'bg-orange-100 text-orange-800';
+      case 'entregado': return 'bg-blue-100 text-blue-800';
       default: return 'bg-yellow-100 text-yellow-800';
     }
   };
@@ -255,6 +273,7 @@ export default function ChecksPage() {
       case 'cobrado': return <CheckCircle className="h-4 w-4" />;
       case 'rechazado': return <XCircle className="h-4 w-4" />;
       case 'vencido': return <AlertTriangle className="h-4 w-4" />;
+      case 'entregado': return <Truck className="h-4 w-4" />;
       default: return <Clock className="h-4 w-4" />;
     }
   };
@@ -307,7 +326,7 @@ export default function ChecksPage() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center">
               <div className="p-2 bg-yellow-100 rounded-lg">
@@ -319,7 +338,7 @@ export default function ChecksPage() {
                   {stats.pendiente?.count || 0}
                 </p>
                 <p className="text-sm text-gray-500">
-                  ${stats.pendiente?.totalAmount?.toLocaleString() || '0'}
+                  ${formatCurrency(stats.pendiente?.totalAmount || 0)}
                 </p>
               </div>
             </div>
@@ -336,7 +355,7 @@ export default function ChecksPage() {
                   {stats.cobrado?.count || 0}
                 </p>
                 <p className="text-sm text-gray-500">
-                  ${stats.cobrado?.totalAmount?.toLocaleString() || '0'}
+                  ${formatCurrency(stats.cobrado?.totalAmount || 0)}
                 </p>
               </div>
             </div>
@@ -353,7 +372,7 @@ export default function ChecksPage() {
                   {stats.vencido?.count || 0}
                 </p>
                 <p className="text-sm text-gray-500">
-                  ${stats.vencido?.totalAmount?.toLocaleString() || '0'}
+                  ${formatCurrency(stats.vencido?.totalAmount || 0)}
                 </p>
               </div>
             </div>
@@ -370,7 +389,24 @@ export default function ChecksPage() {
                   {stats.rechazado?.count || 0}
                 </p>
                 <p className="text-sm text-gray-500">
-                  ${stats.rechazado?.totalAmount?.toLocaleString() || '0'}
+                  ${formatCurrency(stats.rechazado?.totalAmount || 0)}
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <Truck className="h-6 w-6 text-blue-600" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Entregados</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {stats.entregado?.count || 0}
+                </p>
+                <p className="text-sm text-gray-500">
+                  ${formatCurrency(stats.entregado?.totalAmount || 0)}
                 </p>
               </div>
             </div>
@@ -403,6 +439,7 @@ export default function ChecksPage() {
                 <option value="cobrado">Cobrado</option>
                 <option value="rechazado">Rechazado</option>
                 <option value="vencido">Vencido</option>
+                <option value="entregado">Entregado</option>
               </select>
               
               <select
@@ -640,6 +677,9 @@ export default function ChecksPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Estado
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Entrega
+                  </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Acciones
                   </th>
@@ -669,7 +709,7 @@ export default function ChecksPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">
-                          ${check.amount.toLocaleString()}
+                          ${formatCurrency(check.amount)}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -697,6 +737,23 @@ export default function ChecksPage() {
                           {getStatusIcon(check.status)}
                           <span className="ml-1">{check.status.toUpperCase()}</span>
                         </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {check.status === 'entregado' ? (
+                          <div className="text-sm">
+                            <div className="text-gray-900 font-medium">{check.deliveredTo}</div>
+                            <div className="text-gray-500 text-xs">
+                              {check.deliveredDate && formatDate(check.deliveredDate)}
+                            </div>
+                            {check.invoiceId && (
+                              <div className="text-blue-600 text-xs">
+                                Factura #{check.invoiceId.invoiceNumber}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-400">-</div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div className="flex justify-end space-x-2">
@@ -822,7 +879,7 @@ export default function ChecksPage() {
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Monto:</label>
-                    <p className="text-sm text-gray-900">${selectedCheck.amount.toLocaleString()}</p>
+                    <p className="text-sm text-gray-900">${formatCurrency(selectedCheck.amount)}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Tipo:</label>
@@ -867,6 +924,39 @@ export default function ChecksPage() {
                     <div>
                       <label className="text-sm font-medium text-gray-700">Notas:</label>
                       <p className="text-sm text-gray-900">{selectedCheck.notes}</p>
+                    </div>
+                  )}
+                  
+                  {/* Información de entrega */}
+                  {selectedCheck.status === 'entregado' && (
+                    <div className="border-t pt-3 mt-3">
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">Información de Entrega:</h4>
+                      <div className="space-y-2">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600">Entregado a:</label>
+                          <p className="text-sm text-gray-900">{selectedCheck.deliveredTo}</p>
+                        </div>
+                        {selectedCheck.deliveredDate && (
+                          <div>
+                            <label className="text-xs font-medium text-gray-600">Fecha de entrega:</label>
+                            <p className="text-sm text-gray-900">{formatDate(selectedCheck.deliveredDate)}</p>
+                          </div>
+                        )}
+                        {selectedCheck.deliveredFor && (
+                          <div>
+                            <label className="text-xs font-medium text-gray-600">Motivo:</label>
+                            <p className="text-sm text-gray-900">{selectedCheck.deliveredFor}</p>
+                          </div>
+                        )}
+                        {selectedCheck.invoiceId && (
+                          <div>
+                            <label className="text-xs font-medium text-gray-600">Factura:</label>
+                            <p className="text-sm text-blue-600 font-medium">
+                              #{selectedCheck.invoiceId.invoiceNumber} - {selectedCheck.invoiceId.supplierId.businessName}
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

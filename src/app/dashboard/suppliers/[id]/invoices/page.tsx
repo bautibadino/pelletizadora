@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, DollarSign, FileText, Calendar, User, ArrowLeft } from 'lucide-react';
 import { useToast, ToastContainer } from '@/components/Toast';
+import { roundToTwoDecimals, roundToOneDecimal, formatCurrency, calculateTax, calculateSubtotalFromTotal } from '@/lib/utils';
 
 interface Supplier {
   _id: string;
@@ -24,6 +25,21 @@ interface InvoiceLine {
   weight?: number; // Peso por unidad en kg (solo para rollos)
 }
 
+interface Check {
+  _id: string;
+  checkNumber: string;
+  amount: number;
+  isEcheq: boolean;
+  receptionDate: string;
+  dueDate: string;
+  receivedFrom: string;
+  issuedBy: string;
+  status: 'pendiente' | 'cobrado' | 'rechazado' | 'vencido';
+  bankName?: string;
+  accountNumber?: string;
+  notes?: string;
+}
+
 interface Payment {
   amount: number;
   method: 'efectivo' | 'transferencia' | 'cheque' | 'otro';
@@ -31,6 +47,15 @@ interface Payment {
   reference?: string;
   description?: string;
   receivedFrom?: string;
+  checkId?: string;
+  checkNumber?: string;
+  isEcheq?: boolean;
+  issuedBy?: string;
+  bankName?: string;
+  accountNumber?: string;
+  dueDate?: Date;
+  transferNumber?: string;
+  bankAccount?: string;
 }
 
 interface Invoice {
@@ -56,6 +81,20 @@ interface PaymentData {
   reference?: string;
   description?: string;
   receivedFrom?: string;
+  excessHandling?: 'credit' | 'refund_cash' | 'refund_check' | 'refund_transfer';
+  refundMethod?: 'efectivo' | 'transferencia' | 'cheque' | 'otro';
+  refundReference?: string;
+  // Campos específicos para cheques
+  checkId?: string;
+  checkNumber?: string;
+  isEcheq?: boolean;
+  issuedBy?: string;
+  bankName?: string;
+  accountNumber?: string;
+  dueDate?: string;
+  // Campos específicos para transferencias
+  transferNumber?: string;
+  bankAccount?: string;
 }
 
 export default function SupplierInvoices({ params }: { params: Promise<{ id: string }> }) {
@@ -67,6 +106,9 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
   const [showForm, setShowForm] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [availableChecks, setAvailableChecks] = useState<Check[]>([]);
+  const [showCheckModal, setShowCheckModal] = useState(false);
+  const [loadingChecks, setLoadingChecks] = useState(false);
 
   // Formulario de factura simplificado
   const [formData, setFormData] = useState({
@@ -96,7 +138,24 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
     date: new Date().toISOString().split('T')[0],
     reference: '',
     description: '',
-    receivedFrom: ''
+    receivedFrom: '',
+    excessHandling: 'credit',
+    refundMethod: 'efectivo',
+    refundReference: ''
+  });
+
+  // Formulario para crear nuevo cheque
+  const [checkFormData, setCheckFormData] = useState({
+    checkNumber: '',
+    amount: 0,
+    isEcheq: false,
+    receptionDate: new Date().toISOString().split('T')[0],
+    dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    receivedFrom: '',
+    issuedBy: '',
+    bankName: '',
+    accountNumber: '',
+    notes: ''
   });
 
   useEffect(() => {
@@ -146,19 +205,19 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
         line.type = value as 'rollo_alfalfa' | 'rollo_otro' | 'insumo' | 'servicio' | 'otro';
         break;
       case 'quantity':
-        line.quantity = value as number;
+        line.quantity = roundToOneDecimal(value as number);
         break;
       case 'unitPrice':
-        line.unitPrice = value as number;
+        line.unitPrice = roundToTwoDecimals(value as number);
         break;
       case 'weight':
-        line.weight = value as number;
+        line.weight = roundToOneDecimal(value as number);
         break;
     }
     
-    // Calcular total de la línea
+    // Calcular total de la línea con redondeo
     if (field === 'quantity' || field === 'unitPrice') {
-      line.total = line.quantity * line.unitPrice;
+      line.total = roundToTwoDecimals(line.quantity * line.unitPrice);
     }
     
     setLines(newLines);
@@ -182,15 +241,15 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
   };
 
   const calculateSubtotal = () => {
-    return lines.reduce((sum, line) => sum + (line.total || 0), 0);
+    return roundToTwoDecimals(lines.reduce((sum, line) => sum + (line.total || 0), 0));
   };
 
-  const calculateTax = () => {
+  const calculateTaxAmount = () => {
     if (formData.isBlackMarket) return 0; // En negro, sin IVA
     // Si es en blanco, el precio ya incluye IVA, entonces calculamos cuánto es el IVA
     const totalWithTax = calculateSubtotal();
-    const subtotalWithoutTax = totalWithTax / 1.21; // Precio sin IVA
-    return totalWithTax - subtotalWithoutTax; // Diferencia = IVA
+    const subtotalWithoutTax = calculateSubtotalFromTotal(totalWithTax);
+    return roundToTwoDecimals(totalWithTax - subtotalWithoutTax); // Diferencia = IVA
   };
 
   const calculateTotal = () => {
@@ -240,7 +299,7 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
           date: formData.date,
           dueDate: formData.dueDate,
           concept: 'Factura de proveedor',
-          tax: calculateTax(),
+          tax: calculateTaxAmount(),
           lines: lines.map(line => ({
             ...line,
             total: line.quantity * line.unitPrice
@@ -290,17 +349,57 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
       return;
     }
 
+    if (!selectedInvoice) {
+      error('No se ha seleccionado una factura');
+      return;
+    }
+
+    const pendingAmount = calculatePendingAmount(selectedInvoice);
+    const excessAmount = calculateExcessAmount(selectedInvoice, paymentData.amount);
+
+    // Validar que el pago no exceda el monto pendiente (a menos que se maneje el exceso)
+    if (paymentData.amount > pendingAmount && !paymentData.excessHandling) {
+      error('El pago excede el monto pendiente. Por favor seleccione cómo manejar el exceso.');
+      return;
+    }
+
     try {
-      const response = await fetch(`/api/invoices/${selectedInvoice?._id}/payments`, {
+      const response = await fetch(`/api/invoices/${selectedInvoice._id}/payments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(paymentData),
+        body: JSON.stringify({
+          ...paymentData,
+          pendingAmount,
+          excessAmount,
+          appliedAmount: Math.min(paymentData.amount, pendingAmount)
+        }),
       });
 
       if (response.ok) {
+        const result = await response.json();
+        
+        // Mostrar mensaje específico según el caso
+        if (excessAmount > 0) {
+          switch (paymentData.excessHandling) {
+            case 'credit':
+              success(`Pago registrado exitosamente. Saldo a favor del proveedor: ${formatCurrency(excessAmount)}`);
+              break;
+            case 'refund_cash':
+              success(`Pago registrado exitosamente. Devolución en efectivo: ${formatCurrency(excessAmount)}`);
+              break;
+            case 'refund_check':
+              success(`Pago registrado exitosamente. Devolución con cheque: ${formatCurrency(excessAmount)}`);
+              break;
+            case 'refund_transfer':
+              success(`Pago registrado exitosamente. Devolución por transferencia: ${formatCurrency(excessAmount)}`);
+              break;
+          }
+        } else {
         success('Pago registrado exitosamente');
+        }
+
         setShowPaymentForm(null);
         setSelectedInvoice(null);
         setPaymentData({
@@ -309,7 +408,10 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
           date: new Date().toISOString().split('T')[0],
           reference: '',
           description: '',
-          receivedFrom: ''
+          receivedFrom: '',
+          excessHandling: 'credit',
+          refundMethod: 'efectivo',
+          refundReference: ''
         });
         const { id } = await params;
         fetchInvoices(id);
@@ -338,6 +440,84 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
       case 'cheque': return 'Cheque';
       default: return 'Otro';
     }
+  };
+
+  const calculatePendingAmount = (invoice: Invoice) => {
+    const totalPaid = invoice.payments.reduce((sum, payment) => sum + roundToTwoDecimals(payment.amount), 0);
+    return Math.max(0, roundToTwoDecimals(invoice.total - totalPaid));
+  };
+
+  const calculateExcessAmount = (invoice: Invoice, paymentAmount: number) => {
+    const pendingAmount = calculatePendingAmount(invoice);
+    return Math.max(0, roundToTwoDecimals(paymentAmount - pendingAmount));
+  };
+
+  const loadAvailableChecks = async () => {
+    try {
+      setLoadingChecks(true);
+      const response = await fetch('/api/checks?status=pendiente&limit=50');
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableChecks(data.checks || []);
+      }
+    } catch (error) {
+      console.error('Error loading checks:', error);
+    } finally {
+      setLoadingChecks(false);
+    }
+  };
+
+  const handleCreateCheck = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      const response = await fetch('/api/checks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(checkFormData),
+      });
+
+      if (response.ok) {
+        success('Cheque creado exitosamente');
+        setShowCheckModal(false);
+        setCheckFormData({
+          checkNumber: '',
+          amount: 0,
+          isEcheq: false,
+          receptionDate: new Date().toISOString().split('T')[0],
+          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          receivedFrom: '',
+          issuedBy: '',
+          bankName: '',
+          accountNumber: '',
+          notes: ''
+        });
+        loadAvailableChecks();
+      } else {
+        const errorData = await response.json();
+        error(errorData.error || 'Error al crear el cheque');
+      }
+    } catch (err) {
+      console.error('Error creating check:', err);
+      error('Error al crear el cheque');
+    }
+  };
+
+  const handleCheckSelection = (check: Check) => {
+    setPaymentData({
+      ...paymentData,
+      checkId: check._id,
+      checkNumber: check.checkNumber,
+      isEcheq: check.isEcheq,
+      issuedBy: check.issuedBy,
+      bankName: check.bankName || '',
+      accountNumber: check.accountNumber || '',
+      dueDate: check.dueDate,
+      receivedFrom: check.receivedFrom,
+      amount: check.amount
+    });
   };
 
   if (loading) {
@@ -406,15 +586,22 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                         <h3 className="font-semibold text-gray-900">
                           Factura #{invoice.invoiceNumber}
                         </h3>
-                        <p className="text-sm text-gray-600">Factura #{invoice.invoiceNumber}</p>
+                        <p className="text-sm text-gray-600">
+                          {new Date(invoice.date).toLocaleDateString()} - Vto: {new Date(invoice.dueDate).toLocaleDateString()}
+                        </p>
                       </div>
                       <div className="text-right">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(invoice.status)}`}>
                           {invoice.status.toUpperCase()}
                         </span>
-                        <p className="text-lg font-bold text-gray-900 mt-1">
-                          ${invoice.total.toLocaleString()}
+                        <div className="mt-1">
+                                                  <p className="text-lg font-bold text-gray-900">
+                          ${formatCurrency(invoice.total)}
                         </p>
+                          <p className="text-sm text-gray-600">
+                            Pendiente: ${formatCurrency(calculatePendingAmount(invoice))}
+                          </p>
+                        </div>
                       </div>
                     </div>
                     
@@ -454,15 +641,47 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                     {invoice.payments.length > 0 && (
                       <div className="mb-3">
                         <h4 className="font-medium text-gray-900 mb-2">Pagos:</h4>
-                        <div className="space-y-1">
+                        <div className="space-y-2">
                           {invoice.payments.map((payment, index) => (
-                            <div key={index} className="flex justify-between text-sm">
-                              <span>
-                                {getMethodLabel(payment.method)}
-                                {payment.reference && ` - ${payment.reference}`}
-                                {payment.receivedFrom && ` (${payment.receivedFrom})`}
+                            <div key={index} className="bg-gray-50 p-3 rounded-lg">
+                              <div className="flex justify-between items-start mb-1">
+                                <span className="font-medium text-gray-900">
+                                  {getMethodLabel(payment.method)} - ${payment.amount.toLocaleString()}
                               </span>
-                              <span>${payment.amount.toLocaleString()}</span>
+                                <span className="text-xs text-gray-500">
+                                  {new Date(payment.date).toLocaleDateString()}
+                                </span>
+                              </div>
+                              
+                              {/* Información específica según método */}
+                              {payment.method === 'cheque' && (
+                                <div className="text-xs text-gray-600 space-y-1">
+                                  {payment.checkNumber && <div>Cheque #{payment.checkNumber}</div>}
+                                  {payment.issuedBy && <div>Emitido por: {payment.issuedBy}</div>}
+                                  {payment.bankName && <div>Banco: {payment.bankName}</div>}
+                                  {payment.dueDate && <div>Vto: {new Date(payment.dueDate).toLocaleDateString()}</div>}
+                                  {payment.isEcheq && <div className="text-blue-600 font-medium">E-Cheq</div>}
+                                </div>
+                              )}
+                              
+                              {payment.method === 'transferencia' && (
+                                <div className="text-xs text-gray-600 space-y-1">
+                                  {payment.transferNumber && <div>Transferencia #{payment.transferNumber}</div>}
+                                  {payment.bankAccount && <div>Cuenta: {payment.bankAccount}</div>}
+                                </div>
+                              )}
+                              
+                              {payment.receivedFrom && (
+                                <div className="text-xs text-gray-600">
+                                  Recibido de: {payment.receivedFrom}
+                                </div>
+                              )}
+                              
+                              {payment.description && (
+                                <div className="text-xs text-gray-600">
+                                  {payment.description}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -700,7 +919,7 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                             IVA incluido (21%)
                           </label>
                           <div className="text-lg font-bold text-gray-900">
-                            ${calculateTax().toLocaleString()}
+                            ${formatCurrency(calculateTaxAmount())}
                           </div>
                         </div>
                       )}
@@ -746,19 +965,60 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
           </div>
         )}
 
-        {/* Modal de Pago */}
+        {/* Modal de Pago Mejorado */}
         {showPaymentForm && selectedInvoice && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg max-w-md w-full">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <div className="p-6">
-                <h2 className="text-xl font-bold text-gray-900 mb-4">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-bold text-gray-900">
                   Agregar Pago - Factura #{selectedInvoice.invoiceNumber}
                 </h2>
-                
-                <form onSubmit={handlePaymentSubmit} className="space-y-4">
+                  <button
+                    onClick={() => {
+                      setShowPaymentForm(null);
+                      setSelectedInvoice(null);
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Información de la factura */}
+                <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Monto *
+                      <span className="font-medium text-gray-700">Total Factura:</span>
+                      <p className="text-lg font-bold text-gray-900">${formatCurrency(selectedInvoice.total)}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Ya Pagado:</span>
+                      <p className="text-lg font-bold text-green-600">
+                        ${formatCurrency(selectedInvoice.payments.reduce((sum, p) => sum + p.amount, 0))}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Pendiente:</span>
+                      <p className="text-lg font-bold text-red-600">
+                        ${formatCurrency(calculatePendingAmount(selectedInvoice))}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Estado:</span>
+                      <p className={`text-sm font-medium px-2 py-1 rounded-full inline-block ${getStatusColor(selectedInvoice.status)}`}>
+                        {selectedInvoice.status.toUpperCase()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                <form onSubmit={handlePaymentSubmit} className="space-y-6">
+                  {/* Información del pago */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Monto del Pago *
                     </label>
                     <input
                       type="number"
@@ -772,12 +1032,27 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                       Método de Pago *
                     </label>
                     <select
                       value={paymentData.method}
-                      onChange={(e) => setPaymentData({...paymentData, method: e.target.value as 'efectivo' | 'transferencia' | 'cheque' | 'otro'})}
+                        onChange={(e) => {
+                          const method = e.target.value as 'efectivo' | 'transferencia' | 'cheque' | 'otro';
+                          setPaymentData({
+                            ...paymentData, 
+                            method,
+                            // Limpiar campos específicos al cambiar método
+                            checkId: undefined,
+                            checkNumber: undefined,
+                            transferNumber: undefined,
+                            bankAccount: undefined
+                          });
+                          // Cargar cheques si se selecciona cheque
+                          if (method === 'cheque') {
+                            loadAvailableChecks();
+                          }
+                        }}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       required
                     >
@@ -789,8 +1064,8 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Fecha
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Fecha del Pago
                     </label>
                     <input
                       type="date"
@@ -800,21 +1075,77 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                     />
                   </div>
 
+                    {/* Campos dinámicos según método de pago */}
+                    {paymentData.method === 'transferencia' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Referencia
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Número de Transferencia *
                     </label>
                     <input
                       type="text"
-                      value={paymentData.reference}
-                      onChange={(e) => setPaymentData({...paymentData, reference: e.target.value})}
+                          value={paymentData.transferNumber || ''}
+                          onChange={(e) => setPaymentData({...paymentData, transferNumber: e.target.value})}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Número de transferencia, cheque, etc."
+                          placeholder="Número de transferencia"
+                          required
                     />
                   </div>
+                    )}
 
+                    {paymentData.method === 'cheque' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Seleccionar Cheque Existente
+                        </label>
+                        <select
+                          value={paymentData.checkId || ''}
+                          onChange={(e) => {
+                            const checkId = e.target.value;
+                            if (checkId) {
+                              const selectedCheck = availableChecks.find(c => c._id === checkId);
+                              if (selectedCheck) {
+                                handleCheckSelection(selectedCheck);
+                              }
+                            } else {
+                              setPaymentData({
+                                ...paymentData,
+                                checkId: undefined,
+                                checkNumber: undefined,
+                                isEcheq: undefined,
+                                issuedBy: undefined,
+                                bankName: undefined,
+                                accountNumber: undefined,
+                                dueDate: undefined,
+                                receivedFrom: undefined
+                              });
+                            }
+                          }}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="">Seleccionar cheque...</option>
+                          {availableChecks.map((check) => (
+                            <option key={check._id} value={check._id}>
+                              #{check.checkNumber} - ${check.amount.toLocaleString()} - {check.issuedBy} (Vto: {new Date(check.dueDate).toLocaleDateString()})
+                            </option>
+                          ))}
+                        </select>
+                        <div className="mt-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowCheckModal(true)}
+                            className="text-sm text-blue-600 hover:text-blue-800"
+                          >
+                            + Crear nuevo cheque
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Información adicional */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                       Descripción
                     </label>
                     <input
@@ -822,23 +1153,184 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                       value={paymentData.description}
                       onChange={(e) => setPaymentData({...paymentData, description: e.target.value})}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Descripción del pago"
                     />
                   </div>
 
+                    {paymentData.method !== 'cheque' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Recibido de (para cheques de terceros)
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Recibido de
                     </label>
                     <input
                       type="text"
                       value={paymentData.receivedFrom}
                       onChange={(e) => setPaymentData({...paymentData, receivedFrom: e.target.value})}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Nombre de quien entrega el cheque"
+                          placeholder="Nombre de quien entrega el pago"
                     />
+                      </div>
+                    )}
                   </div>
 
-                  <div className="flex justify-end space-x-3 pt-4">
+                  {/* Campos específicos para cheques */}
+                  {paymentData.method === 'cheque' && paymentData.checkId && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <h3 className="text-sm font-medium text-blue-800 mb-3">Información del Cheque Seleccionado:</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="font-medium text-gray-700">Número:</span>
+                          <p className="text-gray-900">{paymentData.checkNumber}</p>
+                        </div>
+                        <div>
+                          <span className="font-medium text-gray-700">Monto:</span>
+                          <p className="text-gray-900">${paymentData.amount?.toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <span className="font-medium text-gray-700">Emitido por:</span>
+                          <p className="text-gray-900">{paymentData.issuedBy}</p>
+                        </div>
+                        <div>
+                          <span className="font-medium text-gray-700">Recibido de:</span>
+                          <p className="text-gray-900">{paymentData.receivedFrom}</p>
+                        </div>
+                        <div>
+                          <span className="font-medium text-gray-700">Banco:</span>
+                          <p className="text-gray-900">{paymentData.bankName || 'No especificado'}</p>
+                        </div>
+                        <div>
+                          <span className="font-medium text-gray-700">Vencimiento:</span>
+                          <p className="text-gray-900">{paymentData.dueDate ? new Date(paymentData.dueDate).toLocaleDateString() : 'No especificado'}</p>
+                        </div>
+                        <div>
+                          <span className="font-medium text-gray-700">Tipo:</span>
+                          <p className="text-gray-900">{paymentData.isEcheq ? 'E-Cheq' : 'Cheque común'}</p>
+                        </div>
+                        <div>
+                          <span className="font-medium text-gray-700">Cuenta:</span>
+                          <p className="text-gray-900">{paymentData.accountNumber || 'No especificado'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Manejo de exceso */}
+                  {paymentData.amount > 0 && calculateExcessAmount(selectedInvoice, paymentData.amount) > 0 && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <div className="flex items-center mb-3">
+                        <div className="flex-shrink-0">
+                          <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                        <div className="ml-3">
+                          <h3 className="text-sm font-medium text-yellow-800">
+                            Pago excede el monto pendiente
+                          </h3>
+                          <div className="mt-1 text-sm text-yellow-700">
+                            <p>Exceso: <span className="font-bold">${calculateExcessAmount(selectedInvoice, paymentData.amount).toLocaleString()}</span></p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          ¿Qué hacer con el exceso?
+                        </label>
+                        <div className="space-y-2">
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              value="credit"
+                              checked={paymentData.excessHandling === 'credit'}
+                              onChange={(e) => setPaymentData({...paymentData, excessHandling: e.target.value as 'credit' | 'refund_cash' | 'refund_check' | 'refund_transfer'})}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">
+                              Mantener como saldo a favor del proveedor
+                            </span>
+                          </label>
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              value="refund_cash"
+                              checked={paymentData.excessHandling === 'refund_cash'}
+                              onChange={(e) => setPaymentData({...paymentData, excessHandling: e.target.value as 'credit' | 'refund_cash' | 'refund_check' | 'refund_transfer'})}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">
+                              Devolver en efectivo
+                            </span>
+                          </label>
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              value="refund_check"
+                              checked={paymentData.excessHandling === 'refund_check'}
+                              onChange={(e) => setPaymentData({...paymentData, excessHandling: e.target.value as 'credit' | 'refund_cash' | 'refund_check' | 'refund_transfer'})}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">
+                              Devolver con cheque
+                            </span>
+                          </label>
+                          <label className="flex items-center">
+                            <input
+                              type="radio"
+                              value="refund_transfer"
+                              checked={paymentData.excessHandling === 'refund_transfer'}
+                              onChange={(e) => setPaymentData({...paymentData, excessHandling: e.target.value as 'credit' | 'refund_cash' | 'refund_check' | 'refund_transfer'})}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">
+                              Devolver por transferencia
+                            </span>
+                          </label>
+                        </div>
+
+                        {/* Campos adicionales para devoluciones */}
+                        {(paymentData.excessHandling === 'refund_check' || paymentData.excessHandling === 'refund_transfer') && (
+                          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Referencia de devolución
+                              </label>
+                              <input
+                                type="text"
+                                value={paymentData.refundReference}
+                                onChange={(e) => setPaymentData({...paymentData, refundReference: e.target.value})}
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder={paymentData.excessHandling === 'refund_check' ? 'Número de cheque' : 'Número de transferencia'}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Resumen del pago */}
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h3 className="text-sm font-medium text-blue-800 mb-2">Resumen del pago:</h3>
+                    <div className="space-y-1 text-sm text-blue-700">
+                      <div className="flex justify-between">
+                        <span>Monto del pago:</span>
+                        <span className="font-medium">${paymentData.amount.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Se aplicará a la factura:</span>
+                        <span className="font-medium">${Math.min(paymentData.amount, calculatePendingAmount(selectedInvoice)).toLocaleString()}</span>
+                      </div>
+                      {calculateExcessAmount(selectedInvoice, paymentData.amount) > 0 && (
+                        <div className="flex justify-between">
+                          <span>Exceso:</span>
+                          <span className="font-medium">${calculateExcessAmount(selectedInvoice, paymentData.amount).toLocaleString()}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end space-x-3 pt-4 border-t">
                     <button
                       type="button"
                       onClick={() => {
@@ -854,6 +1346,184 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                     >
                       Registrar Pago
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal para crear nuevo cheque */}
+        {showCheckModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-bold text-gray-900">
+                    Crear Nuevo Cheque
+                  </h2>
+                  <button
+                    onClick={() => setShowCheckModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+                
+                <form onSubmit={handleCreateCheck} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Número de Cheque *
+                      </label>
+                      <input
+                        type="text"
+                        value={checkFormData.checkNumber}
+                        onChange={(e) => setCheckFormData({...checkFormData, checkNumber: e.target.value})}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Monto *
+                      </label>
+                      <input
+                        type="number"
+                        value={checkFormData.amount}
+                        onChange={(e) => setCheckFormData({...checkFormData, amount: Number(e.target.value)})}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        min="0"
+                        step="0.01"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Fecha de Recepción
+                      </label>
+                      <input
+                        type="date"
+                        value={checkFormData.receptionDate}
+                        onChange={(e) => setCheckFormData({...checkFormData, receptionDate: e.target.value})}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Fecha de Vencimiento *
+                      </label>
+                      <input
+                        type="date"
+                        value={checkFormData.dueDate}
+                        onChange={(e) => setCheckFormData({...checkFormData, dueDate: e.target.value})}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Recibido de *
+                      </label>
+                      <input
+                        type="text"
+                        value={checkFormData.receivedFrom}
+                        onChange={(e) => setCheckFormData({...checkFormData, receivedFrom: e.target.value})}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Nombre de quien entrega el cheque"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Emitido por *
+                      </label>
+                      <input
+                        type="text"
+                        value={checkFormData.issuedBy}
+                        onChange={(e) => setCheckFormData({...checkFormData, issuedBy: e.target.value})}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Banco o empresa que emite el cheque"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Nombre del Banco
+                      </label>
+                      <input
+                        type="text"
+                        value={checkFormData.bankName}
+                        onChange={(e) => setCheckFormData({...checkFormData, bankName: e.target.value})}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Nombre del banco"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Número de Cuenta
+                      </label>
+                      <input
+                        type="text"
+                        value={checkFormData.accountNumber}
+                        onChange={(e) => setCheckFormData({...checkFormData, accountNumber: e.target.value})}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="Número de cuenta"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={checkFormData.isEcheq}
+                        onChange={(e) => setCheckFormData({...checkFormData, isEcheq: e.target.checked})}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <span className="ml-2 text-sm font-medium text-gray-700">
+                        Es un E-Cheq
+                      </span>
+                    </label>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Marque esta casilla si el cheque es un E-Cheq (cheque electrónico)
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Notas
+                    </label>
+                    <textarea
+                      value={checkFormData.notes}
+                      onChange={(e) => setCheckFormData({...checkFormData, notes: e.target.value})}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      rows={3}
+                      placeholder="Notas adicionales sobre el cheque"
+                    />
+                  </div>
+
+                  <div className="flex justify-end space-x-3 pt-4 border-t">
+                    <button
+                      type="button"
+                      onClick={() => setShowCheckModal(false)}
+                      className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                      Crear Cheque
                     </button>
                   </div>
                 </form>

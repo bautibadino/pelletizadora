@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import { roundToTwoDecimals } from '@/lib/utils';
 
 // Interfaz para líneas de factura
 export interface InvoiceLine {
@@ -215,7 +216,7 @@ InvoiceSchema.methods.addPayment = function(payment: Payment) {
   this.payments.push(payment);
   
   // Recalcular estado
-  const totalPaid = this.payments.reduce((sum: number, p: Payment) => sum + p.amount, 0);
+  const totalPaid = this.payments.reduce((sum: number, p: Payment) => sum + roundToTwoDecimals(p.amount), 0);
   
   if (totalPaid >= this.total) {
     this.status = 'pagado';
@@ -228,8 +229,8 @@ InvoiceSchema.methods.addPayment = function(payment: Payment) {
 
 // Método para obtener monto pendiente
 InvoiceSchema.methods.getPendingAmount = function() {
-  const totalPaid = this.payments.reduce((sum: number, payment: Payment) => sum + payment.amount, 0);
-  return Math.max(0, this.total - totalPaid);
+  const totalPaid = this.payments.reduce((sum: number, payment: Payment) => sum + roundToTwoDecimals(payment.amount), 0);
+  return Math.max(0, roundToTwoDecimals(this.total - totalPaid));
 };
 
 // Eliminar el modelo existente si existe para evitar conflictos

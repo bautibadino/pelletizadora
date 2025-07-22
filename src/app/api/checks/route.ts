@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import { Check, ICheck } from '@/models/Check';
+import { roundToTwoDecimals } from '@/lib/utils';
 
 // GET - Obtener cheques con filtros
 export async function GET(request: NextRequest) {
@@ -42,6 +43,8 @@ export async function GET(request: NextRequest) {
     }
     
     const checks = await query
+      .populate('invoiceId', 'invoiceNumber supplierId')
+      .populate('invoiceId.supplierId', 'businessName')
       .skip(skip)
       .limit(limit);
     
@@ -120,10 +123,10 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Crear el cheque
+    // Crear el cheque con redondeo
     const check = new Check({
       checkNumber,
-      amount: Number(amount),
+      amount: roundToTwoDecimals(Number(amount)),
       isEcheq,
       receptionDate: receptionDate ? new Date(receptionDate) : new Date(),
       dueDate: new Date(dueDate),

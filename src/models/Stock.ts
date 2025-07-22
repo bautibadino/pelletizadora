@@ -8,12 +8,16 @@ export interface IStock extends mongoose.Document {
   updatedAt: Date;
 }
 
-// Stock de Rollos (Materia Prima)
-export interface IRollStock extends mongoose.Document {
-  type: string; // Tipo de rollo (pino, eucalipto, etc.)
-  quantity: number; // Cantidad en toneladas
-  supplier?: mongoose.Types.ObjectId; // Proveedor del rollo
+
+
+// Stock de Insumos (Materiales de producción)
+export interface ISupplyStock extends mongoose.Document {
+  name: string; // Nombre del insumo (BENTONITA, etc.)
+  quantity: number; // Cantidad en kg
+  unit: string; // Unidad de medida (kg, litros, etc.)
+  supplier?: mongoose.Types.ObjectId; // Proveedor del insumo
   invoiceNumber?: string; // Número de factura
+  minStock?: number; // Stock mínimo para alertas
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,11 +33,14 @@ export interface IStockMovement extends mongoose.Document {
   updatedAt: Date;
 }
 
-// Movimientos de Rollos
-export interface IRollMovement extends mongoose.Document {
-  rollType: string;
+
+
+// Movimientos de Insumos
+export interface ISupplyMovement extends mongoose.Document {
+  supplyName: string;
   type: 'entrada' | 'salida' | 'produccion';
   quantity: number;
+  unit: string;
   date: Date;
   supplier?: mongoose.Types.ObjectId;
   invoiceNumber?: string;
@@ -59,8 +66,10 @@ const stockSchema = new mongoose.Schema<IStock>({
   timestamps: true,
 });
 
-const rollStockSchema = new mongoose.Schema<IRollStock>({
-  type: {
+
+
+const supplyStockSchema = new mongoose.Schema<ISupplyStock>({
+  name: {
     type: String,
     required: true,
     trim: true,
@@ -71,6 +80,12 @@ const rollStockSchema = new mongoose.Schema<IRollStock>({
     min: 0,
     default: 0,
   },
+  unit: {
+    type: String,
+    required: true,
+    trim: true,
+    default: 'kg',
+  },
   supplier: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Supplier',
@@ -78,6 +93,11 @@ const rollStockSchema = new mongoose.Schema<IRollStock>({
   invoiceNumber: {
     type: String,
     trim: true,
+  },
+  minStock: {
+    type: Number,
+    min: 0,
+    default: 0,
   },
 }, {
   timestamps: true,
@@ -116,8 +136,10 @@ const stockMovementSchema = new mongoose.Schema<IStockMovement>({
   timestamps: true,
 });
 
-const rollMovementSchema = new mongoose.Schema<IRollMovement>({
-  rollType: {
+
+
+const supplyMovementSchema = new mongoose.Schema<ISupplyMovement>({
+  supplyName: {
     type: String,
     required: true,
     trim: true,
@@ -131,6 +153,12 @@ const rollMovementSchema = new mongoose.Schema<IRollMovement>({
     type: Number,
     required: true,
     min: 0.01,
+  },
+  unit: {
+    type: String,
+    required: true,
+    trim: true,
+    default: 'kg',
   },
   date: {
     type: Date,
@@ -158,6 +186,6 @@ const rollMovementSchema = new mongoose.Schema<IRollMovement>({
 });
 
 export const Stock = mongoose.models.Stock || mongoose.model<IStock>('Stock', stockSchema);
-export const RollStock = mongoose.models.RollStock || mongoose.model<IRollStock>('RollStock', rollStockSchema);
+export const SupplyStock = mongoose.models.SupplyStock || mongoose.model<ISupplyStock>('SupplyStock', supplyStockSchema);
 export const StockMovement = mongoose.models.StockMovement || mongoose.model<IStockMovement>('StockMovement', stockMovementSchema);
-export const RollMovement = mongoose.models.RollMovement || mongoose.model<IRollMovement>('RollMovement', rollMovementSchema); 
+export const SupplyMovement = mongoose.models.SupplyMovement || mongoose.model<ISupplyMovement>('SupplyMovement', supplyMovementSchema); 

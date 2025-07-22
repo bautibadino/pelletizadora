@@ -5,69 +5,135 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   Plus,
+  Search,
   Eye,
   TrendingUp,
   Package,
-  Activity,
-  Calculator,
-  User,
   Calendar,
-  BarChart3
+  User,
+  FileText,
+  Activity,
+  Trash2,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  Settings
 } from 'lucide-react';
+import { useToast, ToastContainer } from '@/components/Toast';
+import { roundToTwoDecimals, formatCurrency } from '@/lib/utils';
 
 interface Production {
   _id: string;
-  date: string;
-  rollType: string;
-  rollQuantity: number;
-  pelletQuantity: number;
+  lotNumber: string;
+  pelletType: string;
+  totalQuantity: number;
   efficiency: number;
   operator?: string;
   notes?: string;
+  date: string;
   createdAt: string;
   updatedAt: string;
 }
 
-interface RollStock {
+interface SupplyConsumption {
   _id: string;
-  type: string;
+  production: string;
+  supplyName: string;
   quantity: number;
+  unit: string;
+  date: string;
+  notes?: string;
 }
 
-interface Presentation {
+interface PelletGeneration {
+  _id: string;
+  production: string;
   presentation: string;
   quantity: number;
+  date: string;
+  notes?: string;
 }
+
+interface AvailableSupply {
+  _id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  supplier?: {
+    _id: string;
+    businessName: string;
+  };
+}
+
+interface SupplyConsumptionInput {
+  supplyName: string;
+  quantity: number;
+  unit: string;
+}
+
+
 
 export default function ProductionPage() {
   const [productions, setProductions] = useState<Production[]>([]);
-  const [rolls, setRolls] = useState<RollStock[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedProduction, setSelectedProduction] = useState<Production | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [availableSupplies, setAvailableSupplies] = useState<AvailableSupply[]>([]);
   const router = useRouter();
+  const { success, error } = useToast();
 
   const [formData, setFormData] = useState({
-    rollType: '',
-    rollQuantity: '',
-    pelletQuantity: '',
+    lotNumber: '',
+    pelletType: '',
+    totalQuantity: '',
     efficiency: '',
     operator: '',
     notes: '',
   });
 
-  const [presentations, setPresentations] = useState<Presentation[]>([
-    { presentation: 'Bolsa 25kg', quantity: 0 },
-    { presentation: 'Big Bag', quantity: 0 },
-    { presentation: 'Granel', quantity: 0 },
-  ]);
+  // Opciones predefinidas
+  const pelletTypes = [
+    'Pellet Alfalfa',
+    'Pellet Madera',
+    'Pellet Mixto',
+    'Pellet Soja',
+    'Pellet Girasol',
+    'Pellet Trigo',
+    'Pellet Cebada',
+    'Pellet Avena',
+    'Pellet Maíz',
+    'Pellet Sorgo',
+    'Otro'
+  ];
+
+  const efficiencyOptions = [
+    { value: '95', label: '95% - Excelente' },
+    { value: '90', label: '90% - Muy Buena' },
+    { value: '85', label: '85% - Buena' },
+    { value: '80', label: '80% - Regular' },
+    { value: '75', label: '75% - Baja' },
+    { value: '70', label: '70% - Muy Baja' }
+  ];
+
+  const [supplyConsumptions, setSupplyConsumptions] = useState<SupplyConsumptionInput[]>([]);
 
   useEffect(() => {
     loadProductions();
-    loadRolls();
-  }, [currentPage]);
+    loadAvailableSupplies();
+    success('🚀 Página de producción cargada');
+  }, [currentPage, searchTerm]);
+
+  // Cargar próximo número de lote cuando se abre el formulario
+  useEffect(() => {
+    if (showAddForm) {
+      loadNextLotNumber();
+      success('📝 Formulario de nueva producción abierto');
+    }
+  }, [showAddForm]);
 
   const loadProductions = async () => {
     try {
@@ -77,108 +143,219 @@ export default function ProductionPage() {
         limit: '10',
       });
 
+      if (searchTerm) {
+        params.append('pelletType', searchTerm);
+      }
+
       const response = await fetch(`/api/production?${params}`);
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error('Error al cargar producciones');
+      }
       
+      const data = await response.json();
       setProductions(data.productions);
       setTotalPages(data.pagination.pages);
-    } catch (error) {
-      console.error('Error loading productions:', error);
+      
+      if (data.productions.length === 0 && !loading) {
+        success('ℹ️ No se encontraron producciones');
+      }
+    } catch (err) {
+      console.error('Error loading productions:', err);
+      error('❌ Error al cargar producciones. Intente nuevamente');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadRolls = async () => {
+  const loadAvailableSupplies = async () => {
     try {
-      const response = await fetch('/api/rolls');
+      const response = await fetch('/api/supplies/available');
+      if (!response.ok) {
+        throw new Error('Error al cargar insumos disponibles');
+      }
+      
       const data = await response.json();
-      setRolls(data.rolls);
-    } catch (error) {
-      console.error('Error loading rolls:', error);
+      setAvailableSupplies(data.supplies);
+      
+      if (data.supplies.length === 0) {
+        error('⚠️ No hay insumos disponibles para producción. Cree facturas con insumos primero');
+      }
+    } catch (err) {
+      console.error('Error loading available supplies:', err);
+      error('❌ Error al cargar insumos disponibles. Intente nuevamente');
+    }
+  };
+
+  const loadNextLotNumber = async () => {
+    try {
+      const response = await fetch('/api/production/next-lot');
+      if (!response.ok) {
+        throw new Error('Error al generar número de lote');
+      }
+      
+      const data = await response.json();
+      setFormData(prev => ({ ...prev, lotNumber: data.nextLotNumber }));
+      success(`📋 Lote ${data.nextLotNumber} generado automáticamente`);
+    } catch (err) {
+      console.error('Error loading next lot number:', err);
+      error('❌ Error al generar número de lote. Intente nuevamente');
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    console.log('handleSubmit called');
+    console.log('formData:', formData);
+    console.log('supplyConsumptions:', supplyConsumptions);
+    
+    // Validación de campos requeridos
+    if (!formData.lotNumber || !formData.pelletType || !formData.totalQuantity || !formData.efficiency) {
+      console.log('Validation failed: missing required fields');
+      error('❌ Por favor complete todos los campos requeridos (marcados con *)');
+      return;
+    }
+
+    // Validación de cantidad total
+    if (Number(formData.totalQuantity) <= 0) {
+      error('❌ La cantidad total debe ser mayor a 0');
+      return;
+    }
+
+    // Validación de insumos
+    if (supplyConsumptions.length === 0) {
+      console.log('Validation failed: no supply consumptions');
+      error('❌ Debe agregar al menos un insumo consumido');
+      return;
+    }
+
+    // Validar que todos los insumos tengan datos completos
+    for (let i = 0; i < supplyConsumptions.length; i++) {
+      const consumption = supplyConsumptions[i];
+      if (!consumption.supplyName) {
+        error(`❌ Debe seleccionar un insumo en la fila ${i + 1}`);
+        return;
+      }
+      if (!consumption.quantity || consumption.quantity <= 0) {
+        error(`❌ Debe ingresar una cantidad válida para ${consumption.supplyName}`);
+        return;
+      }
+    }
+
+    // Validar stock disponible
+    for (const consumption of supplyConsumptions) {
+      const availableSupply = availableSupplies.find(s => s.name === consumption.supplyName);
+      if (!availableSupply) {
+        error(`❌ Insumo ${consumption.supplyName} no encontrado en el stock`);
+        return;
+      }
+      if (consumption.quantity > availableSupply.quantity) {
+        error(`❌ Stock insuficiente de ${consumption.supplyName}. Disponible: ${availableSupply.quantity} ${availableSupply.unit}, solicitado: ${consumption.quantity} ${consumption.unit}`);
+        return;
+      }
+    }
+
     try {
+      success('🔄 Procesando producción...');
+      
       const response = await fetch('/api/production', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ...formData,
-          presentations: presentations.filter(p => p.quantity > 0),
+          lotNumber: formData.lotNumber,
+          pelletType: formData.pelletType,
+          totalQuantity: roundToTwoDecimals(Number(formData.totalQuantity)),
+          efficiency: roundToTwoDecimals(Number(formData.efficiency) / 100), // Convertir porcentaje a decimal
+          operator: formData.operator || undefined,
+          notes: formData.notes || undefined,
+          supplyConsumptions,
         }),
       });
 
       if (response.ok) {
-        setFormData({
-          rollType: '',
-          rollQuantity: '',
-          pelletQuantity: '',
-          efficiency: '',
-          operator: '',
-          notes: '',
-        });
-        setPresentations([
-          { presentation: 'Bolsa 25kg', quantity: 0 },
-          { presentation: 'Big Bag', quantity: 0 },
-          { presentation: 'Granel', quantity: 0 },
-        ]);
+        const result = await response.json();
+        success(`✅ Producción ${formData.lotNumber} registrada exitosamente`);
+        
+        // Mostrar resumen de la producción
+        const totalConsumed = supplyConsumptions.reduce((sum, c) => sum + Number(c.quantity), 0);
+        const totalGenerated = Number(formData.totalQuantity);
+        
+        setTimeout(() => {
+          success(`📊 Resumen: ${totalConsumed} kg de insumos → ${totalGenerated} kg de pellets (Granel)`);
+        }, 1000);
+        
+        resetForm();
         setShowAddForm(false);
         loadProductions();
-        loadRolls();
+        loadAvailableSupplies();
       } else {
-        const error = await response.json();
-        alert(error.error);
+        const errorData = await response.json();
+        if (errorData.error.includes('Stock insuficiente')) {
+          error(`❌ ${errorData.error}`);
+        } else if (errorData.error.includes('requeridos')) {
+          error(`❌ ${errorData.error}`);
+        } else {
+          error(`❌ Error al registrar producción: ${errorData.error}`);
+        }
       }
-    } catch (error) {
-      console.error('Error creating production:', error);
-      alert('Error al registrar la producción');
+    } catch (err) {
+      console.error('Error creating production:', err);
+      error('❌ Error de conexión. Verifique su conexión a internet e intente nuevamente');
     }
   };
 
-  const updatePresentation = (index: number, field: keyof Presentation, value: string | number) => {
-    const newPresentations = [...presentations];
-    newPresentations[index] = {
-      ...newPresentations[index],
-      [field]: field === 'quantity' ? parseFloat(value as string) || 0 : value,
-    };
-    setPresentations(newPresentations);
+  const resetForm = () => {
+    setFormData({
+      lotNumber: '',
+      pelletType: '',
+      totalQuantity: '',
+      efficiency: '',
+      operator: '',
+      notes: '',
+    });
+    setSupplyConsumptions([]);
   };
 
-  const calculateEfficiency = () => {
-    const rollQty = parseFloat(formData.rollQuantity) || 0;
-    const pelletQty = parseFloat(formData.pelletQuantity) || 0;
-    if (rollQty > 0) {
-      const efficiency = (pelletQty / rollQty) * 100;
-      setFormData(prev => ({ ...prev, efficiency: efficiency.toFixed(2) }));
+  const addSupplyConsumption = () => {
+    setSupplyConsumptions([...supplyConsumptions, { supplyName: '', quantity: 0, unit: 'kg' }]);
+    success('➕ Fila de insumo agregada. Complete los datos');
+  };
+
+  const removeSupplyConsumption = (index: number) => {
+    const removed = supplyConsumptions[index];
+    setSupplyConsumptions(supplyConsumptions.filter((_, i) => i !== index));
+    if (removed.supplyName) {
+      success(`🗑️ Insumo ${removed.supplyName} removido de la producción`);
+    } else {
+      success('🗑️ Fila de insumo removida');
     }
   };
+
+  const updateSupplyConsumption = (index: number, field: keyof SupplyConsumptionInput, value: string | number) => {
+    const updated = [...supplyConsumptions];
+    const oldValue = updated[index][field];
+    updated[index] = { ...updated[index], [field]: value };
+    setSupplyConsumptions(updated);
+    
+    // Mostrar toast informativo para cambios importantes
+    if (field === 'supplyName' && value && value !== oldValue) {
+      const supply = availableSupplies.find(s => s.name === value);
+      if (supply) {
+        success(`📦 Insumo seleccionado: ${value} (${supply.quantity} ${supply.unit} disponible)`);
+      }
+    }
+  };
+
+
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('es-AR');
   };
 
-  const formatQuantity = (quantity: number) => {
-    return `${quantity.toFixed(2)} ton`;
-  };
-
-  const formatEfficiency = (efficiency: number) => {
-    return `${(efficiency * 100).toFixed(1)}%`;
-  };
-
-  const formatRollType = (type: string) => {
-    // Convertir rollo_alfalfa -> Alfalfa, rollo_maiz -> Maíz, etc.
-    if (type.startsWith('rollo_')) {
-      const name = type.replace('rollo_', '');
-      // Capitalizar primera letra
-      return name.charAt(0).toUpperCase() + name.slice(1);
-    }
-    return type;
+  const formatQuantity = (quantity: number, unit: string) => {
+    return `${roundToTwoDecimals(quantity)} ${unit}`;
   };
 
   if (loading && productions.length === 0) {
@@ -216,304 +393,497 @@ export default function ProductionPage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Add Production Form */}
-        {showAddForm && (
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Registrar Producción
-            </h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Tipo de Rollo *
-                  </label>
-                  <select
-                    value={formData.rollType}
-                    onChange={(e) => setFormData({ ...formData, rollType: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
-                    required
-                  >
-                    <option value="">Seleccionar rollo</option>
-                    {rolls.map((roll) => (
-                      <option key={roll._id} value={roll.type}>
-                        {formatRollType(roll.type)} - {formatQuantity(roll.quantity)} disponible
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Cantidad de Rollos (ton) *
-                  </label>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={formData.rollQuantity}
-                    onChange={(e) => setFormData({ ...formData, rollQuantity: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
-                    placeholder="0.00"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Cantidad de Pellets (ton) *
-                  </label>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={formData.pelletQuantity}
-                    onChange={(e) => {
-                      setFormData({ ...formData, pelletQuantity: e.target.value });
-                      calculateEfficiency();
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
-                    placeholder="0.00"
-                    required
-                  />
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Eficiencia (%)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    value={formData.efficiency}
-                    onChange={(e) => setFormData({ ...formData, efficiency: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
-                    placeholder="0.0"
-                    readOnly
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Operador
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.operator}
-                    onChange={(e) => setFormData({ ...formData, operator: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
-                    placeholder="Nombre del operador"
-                  />
-                </div>
-              </div>
-
-              {/* Presentaciones de Pellets */}
-              <div className="border-t pt-4">
-                <h4 className="text-md font-medium text-gray-900 mb-3">Presentaciones de Pellets Generadas</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {presentations.map((presentation, index) => (
-                    <div key={presentation.presentation}>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {presentation.presentation}
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={presentation.quantity}
-                        onChange={(e) => updatePresentation(index, 'quantity', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
-                        placeholder="0.00"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notas (opcional)
-                </label>
-                <textarea
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
-                  rows={3}
-                  placeholder="Notas sobre la producción"
+        {/* Search and Filters */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar por tipo de pellet..."
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    if (e.target.value) {
+                      success(`🔍 Buscando: ${e.target.value}`);
+                    }
+                  }}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                 />
               </div>
-              
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700"
-                >
-                  Registrar Producción
-                </button>
-              </div>
-            </form>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  loadProductions();
+                  success('🔄 Actualizando lista de producciones...');
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 flex items-center"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Actualizar
+              </button>
+            </div>
           </div>
-        )}
+        </div>
 
         {/* Productions Table */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Producciones ({productions.length})
-            </h3>
+            <h2 className="text-lg font-medium text-gray-900">Producciones</h2>
           </div>
-          {productions.length === 0 ? (
-            <div className="px-6 py-8 text-center">
-              <Activity className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">No hay producciones registradas</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Fecha
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Tipo de Rollo
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Rollos Consumidos
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Pellets Producidos
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Eficiencia
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Operador
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Acciones
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {productions.map((production) => (
-                    <tr key={production._id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatDate(production.date)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
-                            <Package className="h-4 w-4 text-green-600" />
-                          </div>
-                          <div className="ml-3">
-                            <div className="text-sm font-medium text-gray-900">
-                              {formatRollType(production.rollType)}
-                            </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Lote
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Tipo de Pellet
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Cantidad
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Eficiencia
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Operador
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Fecha
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Acciones
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {productions.map((production) => (
+                  <tr key={production._id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        <div className="h-10 w-10 bg-purple-100 rounded-full flex items-center justify-center">
+                          <FileText className="h-5 w-5 text-purple-600" />
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-sm font-medium text-gray-900">
+                            {production.lotNumber}
                           </div>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {formatQuantity(production.rollQuantity)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {formatQuantity(production.pelletQuantity)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          <Calculator className="h-3 w-3 mr-1" />
-                          {formatEfficiency(production.efficiency)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {production.pelletType}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {formatQuantity(production.totalQuantity, 'kg')}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {roundToTwoDecimals(production.efficiency)}%
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
                         {production.operator || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex justify-end space-x-2">
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {formatDate(production.date)}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button
+                        onClick={() => {
+                          setSelectedProduction(production);
+                          success(`📋 Ver detalles de producción ${production.lotNumber}`);
+                        }}
+                        className="text-purple-600 hover:text-purple-900 p-1"
+                        title="Ver detalles"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6 mt-4 rounded-lg shadow">
+            <div className="flex-1 flex justify-between sm:hidden">
+              <button
+                onClick={() => {
+                  setCurrentPage(Math.max(1, currentPage - 1));
+                  success('⬅️ Página anterior');
+                }}
+                disabled={currentPage === 1}
+                className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                onClick={() => {
+                  setCurrentPage(Math.min(totalPages, currentPage + 1));
+                  success('➡️ Página siguiente');
+                }}
+                disabled={currentPage === totalPages}
+                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+              >
+                Siguiente
+              </button>
+            </div>
+            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm text-gray-700">
+                  Página <span className="font-medium">{currentPage}</span> de{' '}
+                  <span className="font-medium">{totalPages}</span>
+                </p>
+              </div>
+              <div>
+                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
+                  <button
+                    onClick={() => {
+                      setCurrentPage(Math.max(1, currentPage - 1));
+                      success('⬅️ Página anterior');
+                    }}
+                    disabled={currentPage === 1}
+                    className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCurrentPage(Math.min(totalPages, currentPage + 1));
+                      success('➡️ Página siguiente');
+                    }}
+                    disabled={currentPage === totalPages}
+                    className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Siguiente
+                  </button>
+                </nav>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add Production Modal */}
+        {showAddForm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Nueva Producción
+                  </h2>
+                  <button
+                    onClick={() => setShowAddForm(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <form onSubmit={handleSubmit} className="space-y-6">
+                                     {/* Información básica */}
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                         Número de Lote *
+                       </label>
+                       <input
+                         type="text"
+                         value={formData.lotNumber}
+                         className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-50 text-gray-900"
+                         readOnly
+                       />
+                       <p className="text-xs text-gray-500 mt-1">Generado automáticamente</p>
+                     </div>
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                         Tipo de Pellet *
+                       </label>
+                       <select
+                         value={formData.pelletType}
+                         onChange={(e) => setFormData({...formData, pelletType: e.target.value})}
+                         className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                         required
+                       >
+                         <option value="">Seleccionar tipo de pellet</option>
+                         {pelletTypes.map((type) => (
+                           <option key={type} value={type}>
+                             {type}
+                           </option>
+                         ))}
+                       </select>
+                     </div>
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                         Cantidad Total (kg) *
+                       </label>
+                       <input
+                         type="number"
+                         step="0.01"
+                         value={formData.totalQuantity}
+                         onChange={(e) => {
+                  const newValue = e.target.value;
+                  setFormData({...formData, totalQuantity: newValue});
+                }}
+                         className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
+                         placeholder="0.00"
+                         required
+                       />
+                     </div>
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                         Eficiencia *
+                       </label>
+                       <select
+                         value={formData.efficiency}
+                         onChange={(e) => setFormData({...formData, efficiency: e.target.value})}
+                         className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                         required
+                       >
+                         <option value="">Seleccionar eficiencia</option>
+                         {efficiencyOptions.map((option) => (
+                           <option key={option.value} value={option.value}>
+                             {option.label}
+                           </option>
+                         ))}
+                       </select>
+                     </div>
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                         Operador
+                       </label>
+                       <input
+                         type="text"
+                         value={formData.operator}
+                         onChange={(e) => setFormData({...formData, operator: e.target.value})}
+                         className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
+                         placeholder="Nombre del operador"
+                       />
+                     </div>
+                   </div>
+
+                  {/* Consumo de Insumos */}
+                  <div>
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-md font-medium text-gray-900">Consumo de Insumos</h3>
+                      <button
+                        type="button"
+                        onClick={addSupplyConsumption}
+                        className="px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm"
+                      >
+                        <Plus className="h-4 w-4 inline mr-1" />
+                        Agregar Insumo
+                      </button>
+                    </div>
+                    {supplyConsumptions.map((consumption, index) => (
+                      <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 p-4 border border-gray-200 rounded-lg">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Insumo *
+                          </label>
+                                                     <select
+                             value={consumption.supplyName}
+                             onChange={(e) => updateSupplyConsumption(index, 'supplyName', e.target.value)}
+                             className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                             required
+                           >
+                            <option value="">Seleccionar insumo</option>
+                            {availableSupplies.map((supply) => (
+                              <option key={supply._id} value={supply.name}>
+                                {supply.name} ({formatQuantity(supply.quantity, supply.unit)})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Cantidad *
+                          </label>
+                                                     <input
+                             type="number"
+                             step="0.01"
+                             value={consumption.quantity}
+                             onChange={(e) => updateSupplyConsumption(index, 'quantity', Number(e.target.value))}
+                             className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
+                             placeholder="0.00"
+                             required
+                           />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Unidad
+                          </label>
+                                                     <input
+                             type="text"
+                             value={consumption.unit}
+                             onChange={(e) => updateSupplyConsumption(index, 'unit', e.target.value)}
+                             className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
+                             placeholder="kg"
+                             required
+                           />
+                        </div>
+                        <div className="flex items-end">
                           <button
-                            onClick={() => setSelectedProduction(production)}
-                            className="text-blue-600 hover:text-blue-900 p-1"
-                            title="Ver detalles"
+                            type="button"
+                            onClick={() => removeSupplyConsumption(index)}
+                            className="px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
                           >
-                            <Eye className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </main>
+                      </div>
+                    ))}
+                  </div>
 
-      {/* Production Details Modal */}
-      {selectedProduction && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Detalles de Producción
-                </h3>
-                <button
-                  onClick={() => setSelectedProduction(null)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  ×
-                </button>
+                  {/* Presentación de Pellets - Granel */}
+                  <div>
+                    <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <h3 className="text-md font-medium text-blue-900 mb-2">📦 Presentación de Pellets</h3>
+                      <p className="text-sm text-blue-700">
+                        <strong>Granel:</strong> Todos los pellets producidos se registrarán automáticamente en presentación Granel. 
+                        La cantidad total ingresada será la cantidad de pellets disponibles en stock.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Notas */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Notas
+                    </label>
+                                         <textarea
+                       value={formData.notes}
+                       onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 placeholder-gray-500"
+                       rows={3}
+                       placeholder="Notas adicionales..."
+                     />
+                  </div>
+
+                  {/* Botones */}
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddForm(false);
+                        success('❌ Formulario cancelado');
+                      }}
+                      className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      onClick={() => console.log('Button clicked')}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                    >
+                      Registrar Producción
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        console.log('Test button clicked');
+                        console.log('formData:', formData);
+                        console.log('supplyConsumptions:', supplyConsumptions);
+                      }}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 ml-2"
+                    >
+                      Test
+                    </button>
+                  </div>
+                </form>
               </div>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Fecha:</label>
-                  <p className="text-sm text-gray-900">{formatDate(selectedProduction.date)}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Production Details Modal */}
+        {selectedProduction && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg max-w-2xl w-full">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Detalles de Producción
+                  </h2>
+                  <button
+                    onClick={() => {
+                      setSelectedProduction(null);
+                      success('❌ Detalles cerrados');
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Tipo de Rollo:</label>
-                  <p className="text-sm text-gray-900">{formatRollType(selectedProduction.rollType)}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Rollos Consumidos:</label>
-                  <p className="text-sm text-gray-900">{formatQuantity(selectedProduction.rollQuantity)}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Pellets Producidos:</label>
-                  <p className="text-sm text-gray-900">{formatQuantity(selectedProduction.pelletQuantity)}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Eficiencia:</label>
-                  <p className="text-sm text-gray-900">{formatEfficiency(selectedProduction.efficiency)}</p>
-                </div>
-                {selectedProduction.operator && (
+                <div className="space-y-3">
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Operador:</label>
-                    <p className="text-sm text-gray-900">{selectedProduction.operator}</p>
+                    <label className="text-sm font-medium text-gray-700">Lote:</label>
+                    <p className="text-sm text-gray-900">{selectedProduction.lotNumber}</p>
                   </div>
-                )}
-                {selectedProduction.notes && (
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Notas:</label>
-                    <p className="text-sm text-gray-900">{selectedProduction.notes}</p>
+                    <label className="text-sm font-medium text-gray-700">Tipo de Pellet:</label>
+                    <p className="text-sm text-gray-900">{selectedProduction.pelletType}</p>
                   </div>
-                )}
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Fecha de Registro:</label>
-                  <p className="text-sm text-gray-900">{formatDate(selectedProduction.createdAt)}</p>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Cantidad Total:</label>
+                    <p className="text-sm text-gray-900">{formatQuantity(selectedProduction.totalQuantity, 'kg')}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Eficiencia:</label>
+                    <p className="text-sm text-gray-900">{roundToTwoDecimals(selectedProduction.efficiency)}%</p>
+                  </div>
+                  {selectedProduction.operator && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">Operador:</label>
+                      <p className="text-sm text-gray-900">{selectedProduction.operator}</p>
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Fecha:</label>
+                    <p className="text-sm text-gray-900">{formatDate(selectedProduction.date)}</p>
+                  </div>
+                  {selectedProduction.notes && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">Notas:</label>
+                      <p className="text-sm text-gray-900">{selectedProduction.notes}</p>
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-end mt-6">
+                  <button
+                    onClick={() => {
+                      setSelectedProduction(null);
+                      success('❌ Detalles cerrados');
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  >
+                    Cerrar
+                  </button>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Toast Container */}
+        <ToastContainer toasts={[]} removeToast={() => {}} />
+      </main>
     </div>
   );
 } 

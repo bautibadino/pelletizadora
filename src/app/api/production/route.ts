@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import { Production, RollConsumption, PelletGeneration } from '@/models/Production';
-import { RollStock, RollMovement } from '@/models/Stock';
+import { Production, SupplyConsumption, PelletGeneration } from '@/models/Production';
+import { SupplyStock, SupplyMovement } from '@/models/Stock';
 import { Stock, StockMovement } from '@/models/Stock';
+import { roundToTwoDecimals } from '@/lib/utils';
 
 // GET - Obtener producciones
 export async function GET(request: NextRequest) {
@@ -10,14 +11,14 @@ export async function GET(request: NextRequest) {
     await connectDB();
     
     const { searchParams } = new URL(request.url);
-    const rollType = searchParams.get('rollType');
+    const pelletType = searchParams.get('pelletType');
     const limit = parseInt(searchParams.get('limit') || '50');
     const page = parseInt(searchParams.get('page') || '1');
     
     const filter: Record<string, unknown> = {};
     
-    if (rollType) {
-      filter.rollType = rollType;
+    if (pelletType) {
+      filter.pelletType = pelletType;
     }
     
     const skip = (page - 1) * limit;
@@ -52,68 +53,97 @@ export async function POST(request: NextRequest) {
   try {
     await connectDB();
     
+    const body = await request.json();
+    console.log('Received production data:', body);
+    
     const { 
-      rollType, 
-      rollQuantity, 
-      pelletQuantity, 
+      lotNumber,
+      pelletType, 
+      totalQuantity, 
       efficiency, 
       operator, 
       notes,
+      supplyConsumptions, // Array de {supplyName, quantity, unit}
       presentations // Array de {presentation, quantity}
-    } = await request.json();
+    } = body;
 
-    if (!rollType || !rollQuantity || !pelletQuantity || !efficiency) {
+    console.log('Validation check:', {
+      lotNumber: !!lotNumber,
+      pelletType: !!pelletType,
+      totalQuantity: !!totalQuantity,
+      efficiency: !!efficiency,
+      supplyConsumptions: !!supplyConsumptions,
+      supplyConsumptionsLength: supplyConsumptions?.length
+    });
+
+    if (!lotNumber || !pelletType || !totalQuantity || !efficiency || !supplyConsumptions) {
+      console.log('Validation failed - missing required fields');
       return NextResponse.json(
-        { error: 'Tipo de rollo, cantidad de rollos, cantidad de pellets y eficiencia son requeridos' },
+        { error: 'Número de lote, tipo de pellet, cantidad total, eficiencia y consumos de insumos son requeridos' },
         { status: 400 }
       );
     }
 
-    // Verificar stock disponible de rollos
-    const rollStock = await RollStock.findOne({ type: rollType });
-    if (!rollStock || rollStock.quantity < rollQuantity) {
-      return NextResponse.json(
-        { error: `Stock insuficiente de ${rollType}. Disponible: ${rollStock?.quantity || 0} ton` },
-        { status: 400 }
-      );
+    // Verificar stock disponible de insumos
+    for (const consumption of supplyConsumptions) {
+      const { supplyName, quantity } = consumption;
+      const supplyStock = await SupplyStock.findOne({ name: supplyName });
+      
+      if (!supplyStock || supplyStock.quantity < quantity) {
+        return NextResponse.json(
+          { error: `Stock insuficiente de ${supplyName}. Disponible: ${supplyStock?.quantity || 0} ${supplyStock?.unit || 'kg'}` },
+          { status: 400 }
+        );
+      }
     }
 
     // Crear producción
     const production = new Production({
       date: new Date(),
-      rollType,
-      rollQuantity,
-      pelletQuantity,
-      efficiency,
+      lotNumber,
+      pelletType,
+      totalQuantity: roundToTwoDecimals(totalQuantity),
+      efficiency: roundToTwoDecimals(efficiency),
       operator,
       notes,
     });
 
     await production.save();
 
-    // Registrar consumo de rollos
-    const consumption = new RollConsumption({
-      production: production._id,
-      rollType,
-      quantity: rollQuantity,
-      date: new Date(),
-      notes: `Consumo para producción ${production._id}`,
-    });
-    await consumption.save();
+    // Registrar consumo de insumos y actualizar stock
+    for (const consumption of supplyConsumptions) {
+      const { supplyName, quantity, unit } = consumption;
+      
+      // Crear registro de consumo
+      const supplyConsumption = new SupplyConsumption({
+        production: production._id,
+        supplyName,
+        quantity: roundToTwoDecimals(quantity),
+        unit,
+        date: new Date(),
+        notes: `Consumo para producción ${production.lotNumber}`,
+      });
+      await supplyConsumption.save();
 
-    // Actualizar stock de rollos
-    rollStock.quantity -= rollQuantity;
-    await rollStock.save();
+      // Actualizar stock de insumos
+      const supplyStock = await SupplyStock.findOne({ name: supplyName });
+      if (supplyStock) {
+        supplyStock.quantity = roundToTwoDecimals(supplyStock.quantity - quantity);
+        await supplyStock.save();
+      }
 
-    // Registrar movimiento de salida de rollos
-    const rollMovement = new RollMovement({
-      rollType,
-      type: 'produccion',
-      quantity: rollQuantity,
-      reference: `Producción: ${production._id}`,
-      notes: `Consumo para producción de pellets`,
-    });
-    await rollMovement.save();
+      // Registrar movimiento de salida de insumos
+      const supplyMovement = new SupplyMovement({
+        supplyName,
+        type: 'produccion',
+        quantity: roundToTwoDecimals(quantity),
+        unit,
+        date: new Date(),
+        reference: `Producción: ${production.lotNumber}`,
+        notes: `Consumo para producción de ${pelletType}`,
+      });
+      await supplyMovement.save();
+    }
 
     // Generar stock de pellets por presentación
     for (const presentation of presentations || []) {
@@ -123,21 +153,21 @@ export async function POST(request: NextRequest) {
       const generation = new PelletGeneration({
         production: production._id,
         presentation: presentationType,
-        quantity,
+        quantity: roundToTwoDecimals(quantity),
         date: new Date(),
-        notes: `Generado desde producción ${production._id}`,
+        notes: `Generado desde producción ${production.lotNumber}`,
       });
       await generation.save();
 
       // Actualizar stock de pellets
       let pelletStock = await Stock.findOne({ presentation: presentationType });
       if (pelletStock) {
-        pelletStock.quantity += quantity;
+        pelletStock.quantity = roundToTwoDecimals(pelletStock.quantity + quantity);
         await pelletStock.save();
       } else {
         pelletStock = new Stock({
           presentation: presentationType,
-          quantity,
+          quantity: roundToTwoDecimals(quantity),
         });
         await pelletStock.save();
       }
@@ -146,9 +176,10 @@ export async function POST(request: NextRequest) {
       const stockMovement = new StockMovement({
         presentation: presentationType,
         type: 'entrada',
-        quantity,
-        reference: `Producción: ${production._id}`,
-        notes: `Generado desde rollos ${rollType}`,
+        quantity: roundToTwoDecimals(quantity),
+        date: new Date(),
+        reference: `Producción: ${production.lotNumber}`,
+        notes: `Generado desde ${pelletType}`,
       });
       await stockMovement.save();
     }

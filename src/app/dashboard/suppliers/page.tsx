@@ -21,7 +21,8 @@ import {
   DollarSign,
   AlertTriangle,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  X
 } from 'lucide-react';
 import { useToast, ToastContainer } from '@/components/Toast';
 
@@ -63,7 +64,7 @@ export default function SuppliersPage() {
   const [stats, setStats] = useState<SuppliersStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierWithBalance | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -76,7 +77,9 @@ export default function SuppliersPage() {
     cuit: '',
     contact: '',
     email: '',
-    address: '',
+    street: '',
+    city: '',
+    province: '',
     phone: '',
   });
 
@@ -139,26 +142,31 @@ export default function SuppliersPage() {
       
       const method = editingSupplier ? 'PUT' : 'POST';
       
+      // Combinar los campos de dirección
+      const address = [formData.street, formData.city, formData.province]
+        .filter(part => part.trim())
+        .join(', ');
+      
+      const requestData = {
+        name: formData.name,
+        cuit: formData.cuit,
+        contact: formData.contact,
+        email: formData.email,
+        phone: formData.phone,
+        address,
+      };
+      
       const response = await fetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(requestData),
       });
 
       if (response.ok) {
         success(editingSupplier ? 'Proveedor actualizado exitosamente' : 'Proveedor creado exitosamente');
-        setFormData({
-          name: '',
-          cuit: '',
-          contact: '',
-          email: '',
-          address: '',
-          phone: '',
-        });
-        setShowAddForm(false);
-        setEditingSupplier(null);
+        resetForm();
         loadSuppliers();
       } else {
         const errorData = await response.json();
@@ -170,17 +178,54 @@ export default function SuppliersPage() {
     }
   };
 
-  const handleEdit = (supplier: Supplier) => {
-    setEditingSupplier(supplier);
+  const resetForm = () => {
     setFormData({
-      name: supplier.businessName,
-      cuit: supplier.cuit,
-      contact: supplier.contact,
-      email: supplier.email || '',
-      address: supplier.address || '',
-      phone: supplier.phone || '',
+      name: '',
+      cuit: '',
+      contact: '',
+      email: '',
+      street: '',
+      city: '',
+      province: '',
+      phone: '',
     });
-    setShowAddForm(true);
+    setEditingSupplier(null);
+    setShowModal(false);
+  };
+
+  const openModal = (supplier?: Supplier) => {
+    if (supplier) {
+      setEditingSupplier(supplier);
+      // Parsear la dirección existente si existe
+      const addressParts = supplier.address ? supplier.address.split(',').map(part => part.trim()) : ['', '', ''];
+      setFormData({
+        name: supplier.businessName,
+        cuit: supplier.cuit,
+        contact: supplier.contact,
+        email: supplier.email || '',
+        street: addressParts[0] || '',
+        city: addressParts[1] || '',
+        province: addressParts[2] || '',
+        phone: supplier.phone || '',
+      });
+    } else {
+      setEditingSupplier(null);
+      setFormData({
+        name: '',
+        cuit: '',
+        contact: '',
+        email: '',
+        street: '',
+        city: '',
+        province: '',
+        phone: '',
+      });
+    }
+    setShowModal(true);
+  };
+
+  const handleEdit = (supplier: Supplier) => {
+    openModal(supplier);
   };
 
   const handleDelete = async (supplierId: string) => {
@@ -233,7 +278,7 @@ export default function SuppliersPage() {
               </h1>
             </div>
             <button
-              onClick={() => setShowAddForm(true)}
+              onClick={() => openModal()}
               className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700"
             >
               <Plus className="h-4 w-4 inline mr-2" />
@@ -333,115 +378,6 @@ export default function SuppliersPage() {
             </div>
           </div>
         </div>
-
-        {/* Add/Edit Form */}
-        {showAddForm && (
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              {editingSupplier ? 'Editar Proveedor' : 'Nuevo Proveedor'}
-            </h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nombre *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    CUIT *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.cuit}
-                    onChange={(e) => setFormData({ ...formData, cuit: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Contacto *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.contact}
-                    onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Teléfono
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Dirección
-                </label>
-                <input
-                  type="text"
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
-                />
-              </div>
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddForm(false);
-                    setEditingSupplier(null);
-                    setFormData({
-                      name: '',
-                      cuit: '',
-                      contact: '',
-                      email: '',
-                      address: '',
-                      phone: '',
-                    });
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700"
-                >
-                  {editingSupplier ? 'Actualizar' : 'Crear'} Proveedor
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
 
         {/* Suppliers Table */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -595,6 +531,154 @@ export default function SuppliersPage() {
                     Siguiente
                   </button>
                 </nav>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Supplier Creation/Edit Modal */}
+        {showModal && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div className="relative top-10 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-semibold text-gray-900">
+                    {editingSupplier ? 'Editar Proveedor' : 'Nuevo Proveedor'}
+                  </h3>
+                  <button
+                    onClick={resetForm}
+                    className="text-gray-400 hover:text-gray-600 p-1"
+                  >
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+                
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Nombre de la Empresa *
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
+                        placeholder="Ingrese el nombre de la empresa"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        CUIT *
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.cuit}
+                        onChange={(e) => setFormData({ ...formData, cuit: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
+                        placeholder="XX-XXXXXXXX-X"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Contacto *
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.contact}
+                        onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
+                        placeholder="Nombre del contacto"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
+                        placeholder="contacto@empresa.com"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Teléfono
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
+                        placeholder="+54 11 1234-5678"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Calle y Número
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.street}
+                        onChange={(e) => setFormData({ ...formData, street: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
+                        placeholder="Av. San Martín 123"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Ciudad
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.city}
+                        onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
+                        placeholder="Buenos Aires"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Provincia
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.province}
+                        onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 placeholder-gray-500"
+                        placeholder="Buenos Aires"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end space-x-3 pt-4 border-t">
+                    <button
+                      type="button"
+                      onClick={resetForm}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700"
+                    >
+                      {editingSupplier ? 'Actualizar' : 'Crear'} Proveedor
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           </div>

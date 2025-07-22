@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import { Invoice } from '@/models/Invoice';
+import { Check } from '@/models/Check';
+import mongoose from 'mongoose';
+import { roundToTwoDecimals } from '@/lib/utils';
 
 // GET - Obtener pagos de una factura
 export async function GET(
@@ -53,7 +56,24 @@ export async function POST(
       date,
       reference,
       description,
-      receivedFrom
+      receivedFrom,
+      excessHandling,
+      refundMethod,
+      refundReference,
+      pendingAmount,
+      excessAmount,
+      appliedAmount,
+      // Campos específicos para cheques
+      checkId,
+      checkNumber,
+      isEcheq,
+      issuedBy,
+      bankName,
+      accountNumber,
+      dueDate,
+      // Campos específicos para transferencias
+      transferNumber,
+      bankAccount
     } = body;
     
     // Validaciones
@@ -72,32 +92,103 @@ export async function POST(
       );
     }
     
-    // Verificar que el pago no exceda el monto pendiente
-    const totalPaid = invoice.payments.reduce((sum: number, payment: { amount: number }) => sum + payment.amount, 0);
-    const pendingAmount = Math.max(0, invoice.total - totalPaid);
+    // Calcular montos con redondeo
+    const totalPaid = invoice.payments.reduce((sum: number, payment: { amount: number }) => sum + roundToTwoDecimals(payment.amount), 0);
+    const actualPendingAmount = Math.max(0, roundToTwoDecimals(invoice.total - totalPaid));
+    const actualExcessAmount = Math.max(0, roundToTwoDecimals(amount - actualPendingAmount));
     
-    if (amount > pendingAmount) {
-      return NextResponse.json(
-        { error: `El monto del pago excede el monto pendiente ($${pendingAmount})` },
-        { status: 400 }
-      );
+    // Determinar el monto que se aplicará a la factura
+    let amountToApply = amount;
+    let refundInfo = null;
+    
+    if (actualExcessAmount > 0) {
+      // Hay exceso, manejar según la opción seleccionada
+      amountToApply = actualPendingAmount; // Solo aplicar lo que corresponde a la factura
+      
+      switch (excessHandling) {
+        case 'credit':
+          // Mantener como saldo a favor (no hacer nada especial)
+          refundInfo = {
+            type: 'credit',
+            amount: actualExcessAmount,
+            message: `Saldo a favor del proveedor: $${actualExcessAmount.toLocaleString()}`
+          };
+          break;
+          
+        case 'refund_cash':
+          refundInfo = {
+            type: 'refund_cash',
+            amount: actualExcessAmount,
+            message: `Devolución en efectivo: $${actualExcessAmount.toLocaleString()}`
+          };
+          break;
+          
+        case 'refund_check':
+          if (!refundReference) {
+            return NextResponse.json(
+              { error: 'Se requiere número de cheque para la devolución' },
+              { status: 400 }
+            );
+          }
+          refundInfo = {
+            type: 'refund_check',
+            amount: actualExcessAmount,
+            method: refundMethod || 'cheque',
+            reference: refundReference,
+            message: `Devolución con cheque #${refundReference}: $${actualExcessAmount.toLocaleString()}`
+          };
+          break;
+          
+        case 'refund_transfer':
+          if (!refundReference) {
+            return NextResponse.json(
+              { error: 'Se requiere número de transferencia para la devolución' },
+              { status: 400 }
+            );
+          }
+          refundInfo = {
+            type: 'refund_transfer',
+            amount: actualExcessAmount,
+            method: refundMethod || 'transferencia',
+            reference: refundReference,
+            message: `Devolución por transferencia #${refundReference}: $${actualExcessAmount.toLocaleString()}`
+          };
+          break;
+          
+        default:
+          return NextResponse.json(
+            { error: 'Opción de manejo de exceso no válida' },
+            { status: 400 }
+          );
+      }
     }
     
-    // Crear el pago
+    // Crear el pago (solo el monto que se aplica a la factura)
     const payment = {
-      amount,
+      amount: roundToTwoDecimals(amountToApply),
       method,
       date: date ? new Date(date) : new Date(),
-      reference,
-      description,
-      receivedFrom
+      reference: method === 'transferencia' ? transferNumber : reference,
+      description: description || (refundInfo ? `Pago parcial - ${refundInfo.message}` : 'Pago'),
+      receivedFrom,
+      // Campos específicos para cheques
+      checkId: method === 'cheque' ? checkId : undefined,
+      checkNumber: method === 'cheque' ? checkNumber : undefined,
+      isEcheq: method === 'cheque' ? isEcheq : undefined,
+      issuedBy: method === 'cheque' ? issuedBy : undefined,
+      bankName: method === 'cheque' ? bankName : undefined,
+      accountNumber: method === 'cheque' ? accountNumber : undefined,
+      dueDate: method === 'cheque' && dueDate ? new Date(dueDate) : undefined,
+      // Campos específicos para transferencias
+      transferNumber: method === 'transferencia' ? transferNumber : undefined,
+      bankAccount: method === 'transferencia' ? bankAccount : undefined
     };
     
     // Agregar el pago a la factura
     invoice.payments.push(payment);
     
-    // Recalcular estado
-    const newTotalPaid = invoice.payments.reduce((sum: number, p: { amount: number }) => sum + p.amount, 0);
+    // Recalcular estado con redondeo
+    const newTotalPaid = invoice.payments.reduce((sum: number, p: { amount: number }) => sum + roundToTwoDecimals(p.amount), 0);
     if (newTotalPaid >= invoice.total) {
       invoice.status = 'pagado';
     } else if (newTotalPaid > 0) {
@@ -106,13 +197,38 @@ export async function POST(
     
     await invoice.save();
     
+    // Si el pago es con cheque, actualizar el estado del cheque
+    if (method === 'cheque' && checkId) {
+      try {
+        const check = await Check.findById(checkId);
+        if (check) {
+          check.status = 'entregado';
+          check.deliveredTo = receivedFrom || 'Proveedor';
+          check.deliveredDate = new Date();
+          check.deliveredFor = `Pago factura #${invoice.invoiceNumber}`;
+          check.invoiceId = invoice._id as mongoose.Types.ObjectId;
+          await check.save();
+        }
+      } catch (error) {
+        console.error('Error updating check status:', error);
+        // No fallar el pago si hay error actualizando el cheque
+      }
+    }
+    
     // Poblar datos del proveedor para la respuesta
     await invoice.populate('supplierId', 'businessName contact');
     
     return NextResponse.json({
       message: 'Pago registrado exitosamente',
       invoice,
-      payment
+      payment,
+      refundInfo,
+      summary: {
+        totalPayment: roundToTwoDecimals(amount),
+        appliedToInvoice: roundToTwoDecimals(amountToApply),
+        excessAmount: roundToTwoDecimals(actualExcessAmount),
+        newPendingAmount: Math.max(0, roundToTwoDecimals(invoice.total - newTotalPaid))
+      }
     });
     
   } catch (error) {

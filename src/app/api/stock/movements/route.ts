@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import { StockMovement } from '@/models/Stock';
+import { Sale } from '@/models/Sale';
+import Client from '@/models/Client';
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,10 +31,34 @@ export async function GET(request: NextRequest) {
       .skip(skip)
       .limit(limit);
     
+    // Enriquecer movimientos con información del cliente para ventas
+    const enrichedMovements = await Promise.all(
+      movements.map(async (movement) => {
+        const movementObj = movement.toObject();
+        
+        // Si es una salida y la referencia contiene "Venta", buscar información del cliente
+        if (movement.type === 'salida' && movement.reference && movement.reference.startsWith('Venta ')) {
+          try {
+            const saleId = movement.reference.replace('Venta ', '');
+            const sale = await Sale.findById(saleId).populate('client', 'name company');
+            
+            if (sale && sale.client) {
+              movementObj.clientName = sale.client.name;
+              movementObj.clientCompany = sale.client.company;
+            }
+          } catch (error) {
+            console.error('Error fetching sale info:', error);
+          }
+        }
+        
+        return movementObj;
+      })
+    );
+    
     const total = await StockMovement.countDocuments(filter);
     
     return NextResponse.json({
-      movements,
+      movements: enrichedMovements,
       pagination: {
         page,
         limit,

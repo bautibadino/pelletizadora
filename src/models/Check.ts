@@ -16,11 +16,17 @@ export interface ICheck extends Document {
   issuedBy: string; // Quien emite el cheque (banco/empresa)
   
   // Estado del cheque
-  status: 'pendiente' | 'cobrado' | 'rechazado' | 'vencido';
+  status: 'pendiente' | 'cobrado' | 'rechazado' | 'vencido' | 'entregado';
   
   // Relaciones
   clientPaymentId?: mongoose.Types.ObjectId; // Si viene de un pago de cliente
   supplierPaymentId?: mongoose.Types.ObjectId; // Si viene de un pago a proveedor
+  
+  // Información de entrega
+  deliveredTo?: string; // A quién se entregó el cheque
+  deliveredDate?: Date; // Fecha de entrega
+  deliveredFor?: string; // Para qué se entregó (factura, concepto, etc.)
+  invoiceId?: mongoose.Types.ObjectId; // Referencia a la factura si se entregó para pagar una
   
   // Información adicional
   bankName?: string;
@@ -76,7 +82,7 @@ const CheckSchema = new Schema<ICheck>({
   // Estado del cheque
   status: {
     type: String,
-    enum: ['pendiente', 'cobrado', 'rechazado', 'vencido'],
+    enum: ['pendiente', 'cobrado', 'rechazado', 'vencido', 'entregado'],
     required: true,
     default: 'pendiente'
   },
@@ -90,6 +96,24 @@ const CheckSchema = new Schema<ICheck>({
   supplierPaymentId: {
     type: Schema.Types.ObjectId,
     ref: 'Payment',
+    required: false
+  },
+  
+  // Información de entrega
+  deliveredTo: {
+    type: String,
+    trim: true
+  },
+  deliveredDate: {
+    type: Date
+  },
+  deliveredFor: {
+    type: String,
+    trim: true
+  },
+  invoiceId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Invoice',
     required: false
   },
   

@@ -109,15 +109,15 @@ export function ToastContainer({ toasts, removeToast }: ToastContainerProps) {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`max-w-sm w-full bg-white shadow-lg rounded-lg pointer-events-auto ring-1 ring-black ring-opacity-5 overflow-hidden border ${getToastStyles(toast.type)}`}
+          className={`max-w-md w-full bg-white shadow-lg rounded-lg pointer-events-auto ring-1 ring-black ring-opacity-5 overflow-hidden border ${getToastStyles(toast.type)}`}
         >
           <div className="p-4">
             <div className="flex items-start">
               <div className="flex-shrink-0">
                 {getToastIcon(toast.type)}
               </div>
-              <div className="ml-3 w-0 flex-1 pt-0.5">
-                <p className="text-sm font-medium">
+              <div className="ml-3 flex-1 pt-0.5">
+                <p className="text-sm font-medium break-words">
                   {toast.message}
                 </p>
               </div>

@@ -3,21 +3,22 @@ import mongoose from 'mongoose';
 // Producción de Pellets
 export interface IProduction extends mongoose.Document {
   date: Date;
-  rollType: string;
-  rollQuantity: number; // Cantidad de rollos consumidos (ton)
-  pelletQuantity: number; // Cantidad de pellets producidos (ton)
-  efficiency: number; // Rendimiento (pellet/rollo)
-  notes?: string;
+  lotNumber: string; // Número de lote
+  pelletType: string; // Tipo de pellet (ej: "Pellet Alfalfa")
+  totalQuantity: number; // Cantidad total producida (kg)
+  efficiency: number; // Rendimiento (%)
   operator?: string;
+  notes?: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
-// Consumo de Rollos en Producción
-export interface IRollConsumption extends mongoose.Document {
+// Consumo de Insumos en Producción
+export interface ISupplyConsumption extends mongoose.Document {
   production: mongoose.Types.ObjectId;
-  rollType: string;
-  quantity: number; // Cantidad consumida (ton)
+  supplyName: string; // Nombre del insumo consumido
+  quantity: number; // Cantidad consumida
+  unit: string; // Unidad de medida
   date: Date;
   notes?: string;
   createdAt: Date;
@@ -28,7 +29,7 @@ export interface IRollConsumption extends mongoose.Document {
 export interface IPelletGeneration extends mongoose.Document {
   production: mongoose.Types.ObjectId;
   presentation: string; // 'Bolsa 25kg', 'Big Bag', 'Granel'
-  quantity: number; // Cantidad generada
+  quantity: number; // Cantidad generada (kg)
   date: Date;
   notes?: string;
   createdAt: Date;
@@ -41,17 +42,17 @@ const productionSchema = new mongoose.Schema<IProduction>({
     required: true,
     default: Date.now,
   },
-  rollType: {
+  lotNumber: {
     type: String,
     required: true,
     trim: true,
   },
-  rollQuantity: {
-    type: Number,
+  pelletType: {
+    type: String,
     required: true,
-    min: 0.01,
+    trim: true,
   },
-  pelletQuantity: {
+  totalQuantity: {
     type: Number,
     required: true,
     min: 0.01,
@@ -60,13 +61,13 @@ const productionSchema = new mongoose.Schema<IProduction>({
     type: Number,
     required: true,
     min: 0,
-    max: 1,
+    max: 1, // Cambiado de 100 a 1 para usar decimales
   },
-  notes: {
+  operator: {
     type: String,
     trim: true,
   },
-  operator: {
+  notes: {
     type: String,
     trim: true,
   },
@@ -74,13 +75,13 @@ const productionSchema = new mongoose.Schema<IProduction>({
   timestamps: true,
 });
 
-const rollConsumptionSchema = new mongoose.Schema<IRollConsumption>({
+const supplyConsumptionSchema = new mongoose.Schema<ISupplyConsumption>({
   production: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Production',
     required: true,
   },
-  rollType: {
+  supplyName: {
     type: String,
     required: true,
     trim: true,
@@ -89,6 +90,11 @@ const rollConsumptionSchema = new mongoose.Schema<IRollConsumption>({
     type: Number,
     required: true,
     min: 0.01,
+  },
+  unit: {
+    type: String,
+    required: true,
+    trim: true,
   },
   date: {
     type: Date,
@@ -132,6 +138,17 @@ const pelletGenerationSchema = new mongoose.Schema<IPelletGeneration>({
   timestamps: true,
 });
 
-export const Production = mongoose.models.Production || mongoose.model<IProduction>('Production', productionSchema);
-export const RollConsumption = mongoose.models.RollConsumption || mongoose.model<IRollConsumption>('RollConsumption', rollConsumptionSchema);
-export const PelletGeneration = mongoose.models.PelletGeneration || mongoose.model<IPelletGeneration>('PelletGeneration', pelletGenerationSchema); 
+// Forzar la recreación de los modelos eliminando el caché
+if (mongoose.models.Production) {
+  delete mongoose.models.Production;
+}
+if (mongoose.models.SupplyConsumption) {
+  delete mongoose.models.SupplyConsumption;
+}
+if (mongoose.models.PelletGeneration) {
+  delete mongoose.models.PelletGeneration;
+}
+
+export const Production = mongoose.model<IProduction>('Production', productionSchema);
+export const SupplyConsumption = mongoose.model<ISupplyConsumption>('SupplyConsumption', supplyConsumptionSchema);
+export const PelletGeneration = mongoose.model<IPelletGeneration>('PelletGeneration', pelletGenerationSchema); 

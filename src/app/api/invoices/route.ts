@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import { Invoice, IInvoice, InvoiceLine } from '@/models/Invoice';
 import { Supplier } from '@/models/Supplier';
-import { RollStock } from '@/models/Stock';
+import { SupplyStock, SupplyMovement } from '@/models/Stock';
 import mongoose from 'mongoose';
 
 interface InvoiceLineInput {
@@ -166,29 +166,53 @@ export async function POST(request: NextRequest) {
     await invoice.save();
     console.log('Invoice saved successfully');
     
-    // Si hay rollos en las líneas, agregar al stock de rollos
+    // Procesar líneas y agregar al stock de insumos
     for (const line of processedLines) {
-      if (line.type === 'rollo_alfalfa' || line.type === 'rollo_otro') {
-        if (line.weight) {
-          const rollType = line.type;
-          const totalWeight = Number(line.quantity) * Number(line.weight);
-          
-          // Buscar stock existente o crear nuevo
-          let rollStock = await RollStock.findOne({ type: rollType });
-          
-          if (rollStock) {
-            rollStock.quantity += totalWeight;
-          } else {
-            rollStock = new RollStock({
-              type: rollType,
-              quantity: totalWeight,
-              supplier: supplierId,
-              invoiceNumber: invoiceNumber
-            });
+      if (line.type === 'rollo_alfalfa' || line.type === 'rollo_otro' || line.type === 'insumo') {
+        let supplyName = line.description;
+        let quantity = Number(line.quantity);
+        let unit = 'kg';
+        
+        // Para rollos, usar el tipo como nombre y calcular peso total
+        if (line.type === 'rollo_alfalfa' || line.type === 'rollo_otro') {
+          supplyName = line.type === 'rollo_alfalfa' ? 'ROLLO ALFALFA' : 'ROLLO OTRO';
+          if (line.weight) {
+            quantity = Number(line.quantity) * Number(line.weight);
           }
-          
-          await rollStock.save();
+          unit = 'kg'; // Los rollos se miden en kg para consistencia con el consumo
         }
+        
+        // Buscar stock existente o crear nuevo
+        let supplyStock = await SupplyStock.findOne({ name: supplyName });
+        
+        if (supplyStock) {
+          supplyStock.quantity += quantity;
+        } else {
+          supplyStock = new SupplyStock({
+            name: supplyName,
+            quantity: quantity,
+            unit: unit,
+            supplier: supplierId,
+            invoiceNumber: invoiceNumber
+          });
+        }
+        
+        await supplyStock.save();
+        
+        // Crear movimiento de entrada
+        const supplyMovement = new SupplyMovement({
+          supplyName: supplyName,
+          type: 'entrada',
+          quantity: quantity,
+          unit: unit,
+          date: new Date(date),
+          supplier: supplierId,
+          invoiceNumber: invoiceNumber,
+          reference: `Factura ${invoiceNumber}`,
+          notes: `Entrada por factura ${invoiceNumber} - ${line.description}`
+        });
+        
+        await supplyMovement.save();
       }
     }
     

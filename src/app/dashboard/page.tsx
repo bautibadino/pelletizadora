@@ -149,13 +149,13 @@ export default function Dashboard() {
                 <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4">
                   <Activity className="h-10 w-10 text-green-600" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">2. Rollos</h3>
-                <p className="text-sm text-gray-600 mb-4">Materia prima disponible</p>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">2. Insumos</h3>
+                <p className="text-sm text-gray-600 mb-4">Materiales de producción</p>
                 <button
-                  onClick={() => router.push('/dashboard/rolls')}
+                  onClick={() => router.push('/dashboard/supplies')}
                   className="w-full bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors font-medium"
                 >
-                  Ver Rollos
+                  Ver Insumos
                 </button>
               </div>
 
@@ -277,13 +277,15 @@ export default function Dashboard() {
             </button>
             
             <button
-              onClick={() => router.push('/dashboard/rolls')}
+              onClick={() => router.push('/dashboard/supplies')}
               className="flex flex-col items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
             >
               <Activity className="h-6 w-6 text-orange-600 mb-2" />
-              <span className="text-sm font-medium text-gray-900">Movimientos</span>
-              <span className="text-xs text-gray-500">Rollos</span>
+              <span className="text-sm font-medium text-gray-900">Insumos</span>
+              <span className="text-xs text-gray-500">Gestionar</span>
             </button>
+            
+
           </div>
         </div>
       </main>

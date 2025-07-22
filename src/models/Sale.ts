@@ -45,7 +45,7 @@ const saleSchema = new mongoose.Schema<ISale>({
   quantity: {
     type: Number,
     required: true,
-    min: 1,
+    min: 0.001, // Permitir cantidades desde 1 kg (0.001 ton)
   },
   unitPrice: {
     type: Number,
