@@ -16,7 +16,8 @@ import {
   Building,
   User,
   Filter,
-  RefreshCw
+  RefreshCw,
+  DollarSign
 } from 'lucide-react';
 
 interface Client {
@@ -28,6 +29,7 @@ interface Client {
   email?: string;
   address?: string;
   phone?: string;
+  creditBalance?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -369,6 +371,9 @@ export default function ClientsPage() {
                     Contacto
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Saldo a Favor
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Fecha Registro
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -412,6 +417,17 @@ export default function ClientsPage() {
                         </div>
                       )}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {client.creditBalance && client.creditBalance > 0 ? (
+                          <span className="text-blue-600 font-medium">
+                            ${client.creditBalance.toFixed(2)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-500">$0.00</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDate(client.createdAt)}
                     </td>
@@ -424,6 +440,15 @@ export default function ClientsPage() {
                         >
                           <Eye className="h-4 w-4" />
                         </button>
+                        {client.creditBalance && client.creditBalance > 0 && (
+                          <button
+                            onClick={() => router.push(`/dashboard/clients/${client._id}/credit`)}
+                            className="text-blue-600 hover:text-blue-900 p-1"
+                            title="Gestionar saldo a favor"
+                          >
+                            <DollarSign className="h-4 w-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleEdit(client)}
                           className="text-green-600 hover:text-green-900 p-1"

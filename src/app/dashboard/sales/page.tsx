@@ -18,11 +18,13 @@ import {
   Clock,
   AlertCircle
 } from 'lucide-react';
+import { useToast, ToastContainer } from '@/components/Toast';
 
 interface Client {
   _id: string;
   name: string;
   company: string;
+  creditBalance?: number;
 }
 
 interface Sale {
@@ -37,6 +39,7 @@ interface Sale {
   lot?: string;
   notes?: string;
   createdAt: string;
+  surplus?: number; // Sobrante específico de esta venta
 }
 
 interface StockItem {
@@ -61,6 +64,7 @@ export default function SalesPage() {
     dateTo: '',
   });
   const router = useRouter();
+  const { success, error } = useToast();
 
   const [formData, setFormData] = useState({
     clientId: '',
@@ -74,6 +78,7 @@ export default function SalesPage() {
     loadSales();
     loadClients();
     loadStock();
+    success('🛒 Página de ventas cargada');
   }, [currentPage, filters]);
 
   const loadSales = async () => {
@@ -127,7 +132,7 @@ export default function SalesPage() {
     e.preventDefault();
     
     if (!formData.clientId || !formData.quantity || !formData.unitPrice) {
-      alert('Por favor complete todos los campos requeridos');
+      error('❌ Por favor complete todos los campos requeridos');
       return;
     }
 
@@ -135,11 +140,13 @@ export default function SalesPage() {
     const stockAvailable = getStockAvailable();
     const quantityRequested = parseFloat(formData.quantity);
     if (quantityRequested > stockAvailable) {
-      alert(`Stock insuficiente. Disponible: ${stockAvailable.toFixed(2)} kg, solicitado: ${quantityRequested.toFixed(2)} kg`);
+      error(`❌ Stock insuficiente. Disponible: ${stockAvailable.toFixed(2)} kg, solicitado: ${quantityRequested.toFixed(2)} kg`);
       return;
     }
 
     try {
+      success('🔄 Procesando venta...');
+      
       const response = await fetch('/api/sales', {
         method: 'POST',
         headers: {
@@ -153,6 +160,40 @@ export default function SalesPage() {
       });
 
       if (response.ok) {
+        const saleData = await response.json();
+        
+        // Aplicar saldo a favor automáticamente si el cliente tiene saldo
+        const clientCreditBalance = getSelectedClientCreditBalance();
+        if (clientCreditBalance > 0) {
+          try {
+            const totalAmount = parseFloat(formData.quantity) * parseFloat(formData.unitPrice);
+            const amountToApply = Math.min(clientCreditBalance, totalAmount);
+            
+            const creditResponse = await fetch(`/api/clients/${formData.clientId}/apply-credit`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                saleId: saleData.sale._id,
+                amount: amountToApply,
+              }),
+            });
+
+            if (creditResponse.ok) {
+              const creditData = await creditResponse.json();
+              success(`✅ Venta creada exitosamente. Saldo a favor aplicado: ${formatCurrency(amountToApply)}`);
+            } else {
+              success('✅ Venta creada exitosamente');
+            }
+          } catch (creditError) {
+            console.error('Error applying credit:', creditError);
+            success('✅ Venta creada exitosamente');
+          }
+        } else {
+          success('✅ Venta creada exitosamente');
+        }
+        
         setFormData({
           clientId: '',
           quantity: '',
@@ -163,20 +204,24 @@ export default function SalesPage() {
         setShowAddForm(false);
         loadSales();
         loadStock(); // Recargar stock después de la venta
-        alert('Venta creada exitosamente');
       } else {
-        const error = await response.json();
-        alert(error.error);
+        const errorData = await response.json();
+        error(`❌ ${errorData.error}`);
       }
-    } catch (error) {
-      console.error('Error creating sale:', error);
-      alert('Error al crear la venta');
+    } catch (err) {
+      console.error('Error creating sale:', err);
+      error('❌ Error de conexión. Verifique su conexión a internet e intente nuevamente');
     }
   };
 
   const getStockAvailable = () => {
     const stockItem = stock.find(item => item.presentation === 'Granel');
     return stockItem ? stockItem.quantity : 0;
+  };
+
+  const getSelectedClientCreditBalance = () => {
+    const selectedClient = clients.find(client => client._id === formData.clientId);
+    return selectedClient?.creditBalance || 0;
   };
 
   const getStatusIcon = (status: string) => {
@@ -252,7 +297,10 @@ export default function SalesPage() {
               </h1>
             </div>
             <button
-              onClick={() => setShowAddForm(true)}
+              onClick={() => {
+                setShowAddForm(true);
+                success('📝 Formulario de nueva venta abierto');
+              }}
               className="px-4 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700"
             >
               <Plus className="h-4 w-4 inline mr-2" />
@@ -341,7 +389,10 @@ export default function SalesPage() {
             </div>
             <div className="flex items-end">
               <button
-                onClick={loadSales}
+                onClick={() => {
+                  loadSales();
+                  success('🔍 Filtros aplicados');
+                }}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
               >
                 <RefreshCw className="h-4 w-4 inline mr-2" />
@@ -361,7 +412,10 @@ export default function SalesPage() {
                     Nueva Venta (Granel)
                   </h3>
                   <button
-                    onClick={() => setShowAddForm(false)}
+                    onClick={() => {
+                      setShowAddForm(false);
+                      success('❌ Formulario cancelado');
+                    }}
                     className="text-gray-400 hover:text-gray-600"
                   >
                     <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -402,6 +456,23 @@ export default function SalesPage() {
                       </span>
                     </div>
                   </div>
+
+                  {/* Saldo a Favor del Cliente */}
+                  {formData.clientId && getSelectedClientCreditBalance() > 0 && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Saldo a Favor del Cliente
+                      </label>
+                      <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-md">
+                        <span className="text-sm font-medium text-blue-600">
+                          {formatCurrency(getSelectedClientCreditBalance())}
+                        </span>
+                        <p className="text-xs text-blue-600 mt-1">
+                          💡 Este saldo se puede aplicar automáticamente al crear la venta
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Cantidad en kg */}
                   <div>
@@ -496,7 +567,10 @@ export default function SalesPage() {
                   <div className="flex justify-end space-x-3 pt-4">
                     <button
                       type="button"
-                      onClick={() => setShowAddForm(false)}
+                      onClick={() => {
+                        setShowAddForm(false);
+                        success('❌ Formulario cancelado');
+                      }}
                       className="px-6 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
                     >
                       Cancelar
@@ -541,6 +615,9 @@ export default function SalesPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Estado
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Saldo a Favor
+                  </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Acciones
                   </th>
@@ -579,10 +656,22 @@ export default function SalesPage() {
                         <span className="ml-1">{getStatusText(sale.status)}</span>
                       </span>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                      {sale.surplus && sale.surplus > 0 ? (
+                  <span className="text-blue-600 font-medium">
+                    {formatCurrency(sale.surplus)}
+                  </span>
+                ) : (
+                  <span className="text-gray-500">$0.00</span>
+                )}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex justify-end space-x-2">
                         <button
-                          onClick={() => setSelectedSale(sale)}
+                          onClick={() => {
+                            setSelectedSale(sale);
+                            success(`📋 Ver detalles de venta a ${sale.client.name}`);
+                          }}
                           className="text-blue-600 hover:text-blue-900 p-1"
                           title="Ver detalles"
                         >
@@ -675,6 +764,11 @@ export default function SalesPage() {
                     <label className="text-sm font-medium text-gray-700">Cliente:</label>
                     <p className="text-sm text-gray-900">{selectedSale.client.name}</p>
                     <p className="text-xs text-gray-500">{selectedSale.client.company}</p>
+                    {selectedSale.surplus && selectedSale.surplus > 0 && (
+                      <p className="text-xs text-blue-600 font-medium">
+                        Sobrante de esta venta: {formatCurrency(selectedSale.surplus)}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Fecha:</label>
@@ -729,7 +823,10 @@ export default function SalesPage() {
                     </button>
                   )}
                   <button
-                    onClick={() => setSelectedSale(null)}
+                    onClick={() => {
+                      setSelectedSale(null);
+                      success('❌ Detalles cerrados');
+                    }}
                     className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
                   >
                     Cerrar
@@ -739,6 +836,9 @@ export default function SalesPage() {
             </div>
           </div>
         )}
+
+        {/* Toast Container */}
+        <ToastContainer toasts={[]} removeToast={() => {}} />
       </main>
     </div>
   );

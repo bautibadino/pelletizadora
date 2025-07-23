@@ -271,6 +271,12 @@ export default function ProductionPage() {
           operator: formData.operator || undefined,
           notes: formData.notes || undefined,
           supplyConsumptions,
+          presentations: [
+            {
+              presentation: 'Granel',
+              quantity: roundToTwoDecimals(Number(formData.totalQuantity))
+            }
+          ]
         }),
       });
 

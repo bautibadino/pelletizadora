@@ -8,6 +8,7 @@ export interface IClient extends mongoose.Document {
   email?: string;
   address?: string;
   phone?: string;
+  creditBalance: number; // Saldo a favor del cliente
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,6 +47,11 @@ const clientSchema = new mongoose.Schema<IClient>({
   phone: {
     type: String,
     trim: true,
+  },
+  creditBalance: {
+    type: Number,
+    default: 0,
+    min: 0,
   },
 }, {
   timestamps: true,

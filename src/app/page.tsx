@@ -121,7 +121,7 @@ export default function LoginPage() {
           </div>
         </form>
 
-        <div className="text-center">
+        <div className="text-center space-y-2">
           <p className="text-xs text-gray-500">
             Sistema de gestión para fábrica de pellets
           </p>

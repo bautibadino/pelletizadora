@@ -18,7 +18,7 @@ export interface IPayment extends mongoose.Document {
   sale: mongoose.Types.ObjectId;
   amount: number;
   date: Date;
-  method: 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta';
+  method: 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta' | 'saldo_a_favor';
   reference?: string;
   notes?: string;
   checkId?: mongoose.Types.ObjectId; // Referencia al cheque si el método es 'cheque'
@@ -93,7 +93,7 @@ const paymentSchema = new mongoose.Schema<IPayment>({
   method: {
     type: String,
     required: true,
-    enum: ['efectivo', 'transferencia', 'cheque', 'tarjeta'],
+    enum: ['efectivo', 'transferencia', 'cheque', 'tarjeta', 'saldo_a_favor'],
   },
   reference: {
     type: String,

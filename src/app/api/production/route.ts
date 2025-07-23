@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import { Production, SupplyConsumption, PelletGeneration } from '@/models/Production';
-import { SupplyStock, SupplyMovement } from '@/models/Stock';
-import { Stock, StockMovement } from '@/models/Stock';
+import { Stock, StockMovement, SupplyStock, SupplyMovement } from '@/models/Stock';
 import { roundToTwoDecimals } from '@/lib/utils';
 
 // GET - Obtener producciones
@@ -146,8 +145,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Generar stock de pellets por presentación
+    console.log('Presentations to process:', presentations);
     for (const presentation of presentations || []) {
       const { presentation: presentationType, quantity } = presentation;
+      console.log(`Processing presentation: ${presentationType} with quantity: ${quantity}`);
       
       // Crear registro de generación
       const generation = new PelletGeneration({
@@ -158,18 +159,24 @@ export async function POST(request: NextRequest) {
         notes: `Generado desde producción ${production.lotNumber}`,
       });
       await generation.save();
+      console.log(`PelletGeneration saved for ${presentationType}`);
 
       // Actualizar stock de pellets
       let pelletStock = await Stock.findOne({ presentation: presentationType });
+      console.log(`Current stock for ${presentationType}:`, pelletStock);
+      
       if (pelletStock) {
+        const oldQuantity = pelletStock.quantity;
         pelletStock.quantity = roundToTwoDecimals(pelletStock.quantity + quantity);
         await pelletStock.save();
+        console.log(`Stock updated for ${presentationType}: ${oldQuantity} + ${quantity} = ${pelletStock.quantity}`);
       } else {
         pelletStock = new Stock({
           presentation: presentationType,
           quantity: roundToTwoDecimals(quantity),
         });
         await pelletStock.save();
+        console.log(`New stock created for ${presentationType}: ${quantity}`);
       }
 
       // Registrar movimiento de entrada de pellets
@@ -182,6 +189,7 @@ export async function POST(request: NextRequest) {
         notes: `Generado desde ${pelletType}`,
       });
       await stockMovement.save();
+      console.log(`StockMovement saved for ${presentationType}`);
     }
 
     return NextResponse.json({

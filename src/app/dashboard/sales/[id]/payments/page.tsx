@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, DollarSign, Plus, User, Package, Calendar, X, CreditCard, Banknote, Building2, CheckCircle } from 'lucide-react';
-import { useToast } from '@/components/Toast';
+import { useToast, ToastContainer } from '@/components/Toast';
 
 interface Sale {
   _id: string;
@@ -11,6 +11,7 @@ interface Sale {
     _id: string;
     name: string;
     company: string;
+    creditBalance?: number;
   };
   date: string;
   presentation: string;
@@ -34,7 +35,7 @@ interface Payment {
 interface PendingPayment {
   id: string;
   amount: number;
-  method: 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta';
+  method: 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta' | 'saldo_a_favor';
   reference?: string;
   notes?: string;
   // Campos específicos para cheques
@@ -56,7 +57,7 @@ export default function SalePaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showCheckPopup, setShowCheckPopup] = useState(false);
-  const [currentPaymentMethod, setCurrentPaymentMethod] = useState<'efectivo' | 'transferencia' | 'cheque' | 'tarjeta'>('efectivo');
+  const [currentPaymentMethod, setCurrentPaymentMethod] = useState<'efectivo' | 'transferencia' | 'cheque' | 'tarjeta' | 'saldo_a_favor'>('efectivo');
   const router = useRouter();
   const params = useParams();
   const saleId = params.id as string;
@@ -64,7 +65,7 @@ export default function SalePaymentsPage() {
 
   const [formData, setFormData] = useState({
     amount: '',
-    method: 'efectivo' as 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta',
+    method: 'efectivo' as 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta' | 'saldo_a_favor',
     reference: '',
     notes: '',
   });
@@ -135,6 +136,10 @@ export default function SalePaymentsPage() {
     return sale ? sale.totalAmount - totalPaid - pendingTotal : 0;
   };
 
+  const getClientCreditBalance = () => {
+    return sale?.client?.creditBalance || 0;
+  };
+
   const handleAddPayment = () => {
     if (!formData.amount || parseFloat(formData.amount) <= 0) {
       error('Debe ingresar un monto válido');
@@ -143,13 +148,27 @@ export default function SalePaymentsPage() {
 
     const amount = parseFloat(formData.amount);
     const remaining = getRemainingAmount();
+    const clientCreditBalance = getClientCreditBalance();
 
-    if (amount > remaining) {
-      error(`El monto excede el total pendiente (${remaining.toFixed(2)})`);
-      return;
-    }
-
-    if (currentPaymentMethod === 'cheque') {
+    if (currentPaymentMethod === 'saldo_a_favor') {
+      // Validar que el cliente tenga saldo a favor suficiente
+      if (clientCreditBalance <= 0) {
+        error('El cliente no tiene saldo a favor disponible');
+        return;
+      }
+      
+      // El monto máximo que se puede usar del saldo a favor es el mínimo entre:
+      // 1. El saldo a favor disponible
+      // 2. El monto pendiente de la venta
+      const maxAmount = Math.min(clientCreditBalance, remaining);
+      
+      if (amount > maxAmount) {
+        error(`El monto excede el disponible. Máximo: ${formatCurrency(maxAmount)} (Saldo a favor: ${formatCurrency(clientCreditBalance)}, Pendiente: ${formatCurrency(remaining)})`);
+        return;
+      }
+      
+      addPendingPayment(amount, currentPaymentMethod);
+    } else if (currentPaymentMethod === 'cheque') {
       // Si es cheque, el popup ya debería estar abierto, solo validar
       if (!checkFormData.checkNumber || !checkFormData.receivedFrom || !checkFormData.issuedBy || !checkFormData.dueDate) {
         error('Para pagos con cheque, los campos Número de Cheque, Recibido de, Emitido por y Fecha de Vencimiento son obligatorios');
@@ -158,7 +177,8 @@ export default function SalePaymentsPage() {
       // Agregar el cheque directamente
       addPendingPayment(amount, currentPaymentMethod, checkFormData);
     } else {
-      // Agregar pago directo para otros métodos
+      // Permitir sobrantes para otros métodos - no validar que el monto exceda el pendiente
+      // El sobrante se aplicará al saldo a favor del cliente
       addPendingPayment(amount, currentPaymentMethod);
     }
   };
@@ -177,7 +197,7 @@ export default function SalePaymentsPage() {
         const newPayment: PendingPayment = {
       id: Date.now().toString(),
       amount,
-      method: method as 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta',
+      method: method as 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta' | 'saldo_a_favor',
       reference: formData.reference,
       notes: formData.notes,
       ...(checkData && { 
@@ -229,9 +249,14 @@ export default function SalePaymentsPage() {
 
     try {
       const promises = pendingPayments.map(async (pendingPayment) => {
+        // Para cheques, usar el monto del cheque como monto principal
+        const paymentAmount = pendingPayment.method === 'cheque' && pendingPayment.checkAmount 
+          ? pendingPayment.checkAmount 
+          : pendingPayment.amount;
+
         const paymentData = {
           saleId,
-          amount: pendingPayment.amount,
+          amount: paymentAmount,
           method: pendingPayment.method,
           reference: pendingPayment.reference,
           notes: pendingPayment.notes,
@@ -262,7 +287,15 @@ export default function SalePaymentsPage() {
         return response.json();
       });
 
-      await Promise.all(promises);
+      const results = await Promise.all(promises);
+      
+      // Verificar si hubo sobrantes
+      let totalSurplus = 0;
+      results.forEach(result => {
+        if (result.surplusAmount) {
+          totalSurplus += result.surplusAmount;
+        }
+      });
       
       // Limpiar pagos pendientes
       setPendingPayments([]);
@@ -271,7 +304,11 @@ export default function SalePaymentsPage() {
       await loadPayments();
       await loadSale();
       
-      success('Pagos registrados exitosamente');
+      if (totalSurplus > 0) {
+        success(`Pagos registrados exitosamente. Sobrante de ${formatCurrency(totalSurplus)} aplicado al saldo a favor del cliente.`);
+      } else {
+        success('Pagos registrados exitosamente');
+      }
          } catch (err) {
        console.error('Error submitting payments:', err);
        error('Error al registrar los pagos');
@@ -288,6 +325,8 @@ export default function SalePaymentsPage() {
         return <CheckCircle className="h-5 w-5 text-orange-600" />;
       case 'tarjeta':
         return <CreditCard className="h-5 w-5 text-purple-600" />;
+      case 'saldo_a_favor':
+        return <DollarSign className="h-5 w-5 text-blue-600" />;
       default:
         return <DollarSign className="h-5 w-5 text-gray-600" />;
     }
@@ -303,6 +342,8 @@ export default function SalePaymentsPage() {
         return 'Cheque';
       case 'tarjeta':
         return 'Tarjeta';
+      case 'saldo_a_favor':
+        return 'Saldo a Favor';
       default:
         return method;
     }
@@ -404,7 +445,7 @@ export default function SalePaymentsPage() {
             </div>
           </div>
           <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
               <div>
                 <p className="text-sm text-gray-600">Precio unitario</p>
                 <p className="text-lg font-semibold text-gray-900">{formatCurrency(sale.unitPrice)}</p>
@@ -427,6 +468,10 @@ export default function SalePaymentsPage() {
                   {formatCurrency(remainingAmount)}
                 </p>
               </div>
+              <div>
+                <p className="text-sm text-gray-600">Saldo a favor</p>
+                <p className="text-lg font-semibold text-blue-600">{formatCurrency(getClientCreditBalance())}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -437,6 +482,23 @@ export default function SalePaymentsPage() {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
               Agregar Pago
             </h3>
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-700">
+                <strong>💡 Información:</strong> 
+                {currentPaymentMethod === 'saldo_a_favor' ? (
+                  <>
+                    <strong>Saldo a Favor:</strong> {formatCurrency(getClientCreditBalance())} | 
+                    <strong>Pendiente:</strong> {formatCurrency(remainingAmount)} | 
+                    <strong>Máximo disponible:</strong> {formatCurrency(Math.min(getClientCreditBalance(), remainingAmount))}
+                  </>
+                ) : (
+                  <>
+                    Puede ingresar un monto mayor al pendiente. 
+                    El excedente se aplicará automáticamente al saldo a favor del cliente.
+                  </>
+                )}
+              </p>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -445,7 +507,6 @@ export default function SalePaymentsPage() {
                 <input
                   type="number"
                   min="0.01"
-                  max={remainingAmount}
                   step="0.01"
                   value={formData.amount}
                   onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
@@ -454,7 +515,12 @@ export default function SalePaymentsPage() {
                   required
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Máximo: {formatCurrency(remainingAmount)}
+                  Pendiente: {formatCurrency(remainingAmount)} | 
+                  {formData.amount && parseFloat(formData.amount) > remainingAmount && (
+                    <span className="text-blue-600 font-medium">
+                      Sobrante: {formatCurrency(parseFloat(formData.amount) - remainingAmount)}
+                    </span>
+                  )}
                 </p>
               </div>
               <div>
@@ -464,18 +530,13 @@ export default function SalePaymentsPage() {
                 <select
                   value={currentPaymentMethod}
                   onChange={(e) => {
-                    const newMethod = e.target.value as 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta';
+                    const newMethod = e.target.value as 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta' | 'saldo_a_favor';
                     setCurrentPaymentMethod(newMethod);
                     
                     // Si se selecciona cheque, mostrar el popup inmediatamente
                     if (newMethod === 'cheque') {
-                      // Solo mostrar el popup si hay un monto válido
-                      if (formData.amount && parseFloat(formData.amount) > 0) {
-                        setShowCheckPopup(true);
-                      } else {
-                        error('Debe ingresar un monto válido antes de seleccionar cheque');
-                        setCurrentPaymentMethod('efectivo');
-                      }
+                      setShowCheckPopup(true);
+                      success('📋 Formulario de cheque abierto. Complete la información del cheque.');
                     } else {
                       // Si se cambia a otro método, cerrar el popup del cheque
                       setShowCheckPopup(false);
@@ -488,6 +549,7 @@ export default function SalePaymentsPage() {
                   <option value="transferencia">Transferencia</option>
                   <option value="cheque">Cheque</option>
                   <option value="tarjeta">Tarjeta</option>
+                  <option value="saldo_a_favor">Saldo a Favor</option>
                 </select>
               </div>
               <div>
@@ -672,17 +734,9 @@ export default function SalePaymentsPage() {
                  
                  const checkAmount = parseFloat(checkFormData.amount);
                  const paymentAmount = parseFloat(formData.amount);
-                 const remaining = getRemainingAmount();
                  
-                 if (checkAmount > paymentAmount) {
-                   error('El monto del cheque no puede ser mayor al monto del pago');
-                   return;
-                 }
-                 
-                 if (paymentAmount > remaining) {
-                   error(`El monto del pago excede el total pendiente (${remaining.toFixed(2)})`);
-                   return;
-                 }
+                 // Permitir que el monto del cheque sea mayor al monto del pago
+                 // El sobrante se aplicará al saldo a favor del cliente
                  
                  addPendingPayment(paymentAmount, 'cheque', checkFormData);
                }}>
@@ -694,7 +748,6 @@ export default function SalePaymentsPage() {
                      <input
                        type="number"
                        min="0.01"
-                       max={formData.amount ? parseFloat(formData.amount) : undefined}
                        step="0.01"
                        value={checkFormData.amount}
                        onChange={(e) => setCheckFormData({ ...checkFormData, amount: e.target.value })}
@@ -703,7 +756,7 @@ export default function SalePaymentsPage() {
                        required
                      />
                      <p className="text-xs text-gray-500 mt-1">
-                       Máximo: {formData.amount ? formatCurrency(parseFloat(formData.amount)) : '$0.00'}
+                       El sobrante se aplicará al saldo a favor del cliente
                      </p>
                    </div>
 
@@ -841,6 +894,9 @@ export default function SalePaymentsPage() {
           </div>
         </div>
       )}
+
+      {/* Toast Container */}
+      <ToastContainer toasts={[]} removeToast={() => {}} />
     </div>
   );
 } 

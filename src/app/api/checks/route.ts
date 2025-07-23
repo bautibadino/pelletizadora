@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import { Check, ICheck } from '@/models/Check';
+import { Invoice } from '@/models/Invoice';
 import { roundToTwoDecimals } from '@/lib/utils';
 
 // GET - Obtener cheques con filtros
@@ -43,8 +44,6 @@ export async function GET(request: NextRequest) {
     }
     
     const checks = await query
-      .populate('invoiceId', 'invoiceNumber supplierId')
-      .populate('invoiceId.supplierId', 'businessName')
       .skip(skip)
       .limit(limit);
     
