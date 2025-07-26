@@ -154,9 +154,9 @@ export default function SalePaymentsPage() {
       // Validar que el cliente tenga saldo a favor suficiente
       if (clientCreditBalance <= 0) {
         error('El cliente no tiene saldo a favor disponible');
-        return;
-      }
-      
+      return;
+    }
+
       // El monto máximo que se puede usar del saldo a favor es el mínimo entre:
       // 1. El saldo a favor disponible
       // 2. El monto pendiente de la venta
@@ -307,7 +307,7 @@ export default function SalePaymentsPage() {
       if (totalSurplus > 0) {
         success(`Pagos registrados exitosamente. Sobrante de ${formatCurrency(totalSurplus)} aplicado al saldo a favor del cliente.`);
       } else {
-        success('Pagos registrados exitosamente');
+      success('Pagos registrados exitosamente');
       }
          } catch (err) {
        console.error('Error submitting payments:', err);
@@ -535,7 +535,7 @@ export default function SalePaymentsPage() {
                     
                     // Si se selecciona cheque, mostrar el popup inmediatamente
                     if (newMethod === 'cheque') {
-                      setShowCheckPopup(true);
+                        setShowCheckPopup(true);
                       success('📋 Formulario de cheque abierto. Complete la información del cheque.');
                     } else {
                       // Si se cambia a otro método, cerrar el popup del cheque

@@ -56,6 +56,8 @@ interface SuppliersStats {
   totalInvoiced: number;
   totalPaid: number;
   averageDebt: number;
+  period: string;
+  periodLabel: string;
 }
 
 export default function SuppliersPage() {
@@ -70,6 +72,7 @@ export default function SuppliersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [showDebtOnly, setShowDebtOnly] = useState(false);
+  const [period, setPeriod] = useState('current_month'); // 'current_month' o 'all_time'
   const router = useRouter();
 
   const [formData, setFormData] = useState({
@@ -85,14 +88,14 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     loadSuppliers();
-  }, [currentPage, searchTerm, showDebtOnly]);
+  }, [currentPage, searchTerm, showDebtOnly, period]);
 
   const loadSuppliers = async () => {
     try {
       setLoading(true);
       
-      // Cargar estadísticas y proveedores con balance
-      const statsResponse = await fetch('/api/suppliers/stats');
+      // Cargar estadísticas y proveedores con balance según el período seleccionado
+      const statsResponse = await fetch(`/api/suppliers/stats?period=${period}`);
       const statsData = await statsResponse.json();
       
       if (statsResponse.ok) {
@@ -292,7 +295,29 @@ export default function SuppliersPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
         {stats && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Estadísticas - {stats.periodLabel}
+              </h2>
+              <div className="flex items-center gap-2">
+                <select
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value)}
+                  className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                >
+                  <option value="current_month">Mes Corriente</option>
+                  <option value="all_time">Todo el Tiempo</option>
+                </select>
+                <div className="text-sm text-gray-500">
+                  {period === 'current_month' ? 
+                    new Date().toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }) :
+                    'Todo el tiempo'
+                  }
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
             <div className="bg-white rounded-lg shadow p-6">
               <div className="flex items-center">
                 <div className="p-2 bg-blue-100 rounded-lg">
@@ -341,6 +366,7 @@ export default function SuppliersPage() {
               </div>
             </div>
           </div>
+        </div>
         )}
 
         {/* Search and Filters */}

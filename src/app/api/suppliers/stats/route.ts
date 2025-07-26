@@ -7,13 +7,32 @@ export async function GET(request: NextRequest) {
   try {
     await connectDB();
     
+    const { searchParams } = new URL(request.url);
+    const period = searchParams.get('period') || 'current_month'; // 'current_month', 'all_time'
+    
+    // Calcular fechas para el filtro del mes corriente
+    let startDate: Date | null = null;
+    let endDate: Date | null = null;
+    
+    if (period === 'current_month') {
+      const now = new Date();
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1); // Primer día del mes
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0); // Último día del mes
+    }
+    
     // Obtener todos los proveedores con sus facturas
     const suppliers = await Supplier.find({});
     
     const suppliersWithBalance = await Promise.all(
       suppliers.map(async (supplier) => {
-        // Obtener todas las facturas del proveedor
-        const invoices = await Invoice.find({ supplierId: supplier._id });
+        // Construir filtro de fechas para facturas
+        const invoiceFilter: Record<string, unknown> = { supplierId: supplier._id };
+        if (startDate && endDate) {
+          invoiceFilter.date = { $gte: startDate, $lte: endDate };
+        }
+        
+        // Obtener facturas del proveedor (filtradas por fecha si es necesario)
+        const invoices = await Invoice.find(invoiceFilter);
         
         // Calcular totales
         const totalInvoiced = invoices.reduce((sum, invoice) => sum + invoice.total, 0);
@@ -63,7 +82,9 @@ export async function GET(request: NextRequest) {
         totalDebt,
         totalInvoiced,
         totalPaid,
-        averageDebt: suppliersWithDebt > 0 ? totalDebt / suppliersWithDebt : 0
+        averageDebt: suppliersWithDebt > 0 ? totalDebt / suppliersWithDebt : 0,
+        period,
+        periodLabel: period === 'current_month' ? 'Mes Corriente' : 'Todo el Tiempo'
       }
     });
   } catch (error) {

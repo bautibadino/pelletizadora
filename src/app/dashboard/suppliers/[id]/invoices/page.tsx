@@ -246,14 +246,15 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
 
   const calculateTaxAmount = () => {
     if (formData.isBlackMarket) return 0; // En negro, sin IVA
-    // Si es en blanco, el precio ya incluye IVA, entonces calculamos cuánto es el IVA
-    const totalWithTax = calculateSubtotal();
-    const subtotalWithoutTax = calculateSubtotalFromTotal(totalWithTax);
-    return roundToTwoDecimals(totalWithTax - subtotalWithoutTax); // Diferencia = IVA
+    // Si es en blanco, calculamos el IVA sobre el subtotal (21%)
+    const subtotal = calculateSubtotal();
+    return roundToTwoDecimals(subtotal * 0.21); // IVA = 21% del subtotal
   };
 
   const calculateTotal = () => {
-    return calculateSubtotal(); // El total es lo que pagamos, el IVA se deduce de ahí
+    const subtotal = calculateSubtotal();
+    const tax = calculateTaxAmount();
+    return roundToTwoDecimals(subtotal + tax); // Total = Subtotal + IVA
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -907,7 +908,7 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {formData.isBlackMarket ? 'Total (sin IVA)' : 'Total (IVA incluido)'}
+                          {formData.isBlackMarket ? 'Total (sin IVA)' : 'Total (Subtotal + IVA)'}
                         </label>
                         <div className="text-xl font-bold text-blue-600">
                           ${calculateTotal().toLocaleString()}
@@ -927,7 +928,7 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                     <p className="text-xs text-gray-500 mt-2">
                       {formData.isBlackMarket 
                         ? 'Factura en negro: el precio ingresado es el total final'
-                        : 'Factura en blanco: el precio ingresado incluye IVA'
+                        : 'Factura en blanco: se calcula el IVA (21%) sobre el subtotal'
                       }
                     </p>
                   </div>

@@ -155,10 +155,10 @@ export async function POST(request: NextRequest) {
     if (surplusAmount > 0) {
       const client = await Client.findById(sale.client);
       if (!client) {
-        return NextResponse.json(
+      return NextResponse.json(
           { error: 'Cliente no encontrado' },
           { status: 404 }
-        );
+      );
       }
     }
 
