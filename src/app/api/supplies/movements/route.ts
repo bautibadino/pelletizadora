@@ -6,13 +6,17 @@ import { roundToTwoDecimals } from '@/lib/utils';
 // GET - Obtener movimientos de insumos
 export async function GET(request: NextRequest) {
   try {
+    console.log('GET /api/supplies/movements - Iniciando...');
     await connectDB();
+    console.log('GET /api/supplies/movements - Conexión a DB establecida');
     
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
     const supplyName = searchParams.get('supplyName');
     const type = searchParams.get('type');
+    
+    console.log('GET /api/supplies/movements - Parámetros:', { page, limit, supplyName, type });
     
     const skip = (page - 1) * limit;
     
@@ -21,25 +25,39 @@ export async function GET(request: NextRequest) {
     if (supplyName) filters.supplyName = supplyName;
     if (type) filters.type = type;
     
+    console.log('GET /api/supplies/movements - Filtros:', filters);
+    
+    // Verificar que el modelo existe
+    console.log('GET /api/supplies/movements - Modelo SupplyMovement:', SupplyMovement);
+    console.log('GET /api/supplies/movements - Nombre del modelo:', SupplyMovement.modelName);
+    
     const movements = await SupplyMovement.find(filters)
       .populate('supplier', 'businessName')
       .sort({ date: -1 })
       .skip(skip)
       .limit(limit);
     
-    const total = await SupplyMovement.countDocuments(filters);
+    console.log('GET /api/supplies/movements - Movements encontrados:', movements.length);
+    console.log('GET /api/supplies/movements - Movements raw:', JSON.stringify(movements, null, 2));
     
-    return NextResponse.json({
-      movements,
+    const total = await SupplyMovement.countDocuments(filters);
+    console.log('GET /api/supplies/movements - Total de movements:', total);
+    
+    const response = {
+      movements: movements || [],
       pagination: {
         page,
         limit,
         total,
         pages: Math.ceil(total / limit)
       }
-    });
+    };
+    
+    console.log('GET /api/supplies/movements - Respuesta preparada:', response);
+    
+    return NextResponse.json(response);
   } catch (error) {
-    console.error('Get supply movements error:', error);
+    console.error('GET /api/supplies/movements - Error completo:', error);
     return NextResponse.json(
       { error: 'Error interno del servidor' },
       { status: 500 }

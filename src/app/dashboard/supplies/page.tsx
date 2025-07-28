@@ -100,13 +100,53 @@ export default function SuppliesPage() {
       }
 
       const response = await fetch(`/api/supplies?${params}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
       
-      setSupplies(data.supplies);
-      setTotalPages(data.pagination.pages);
-      setStats(data.stats);
-    } catch (error) {
-      console.error('Error loading supplies:', error);
+      // Validar que la respuesta tenga la estructura esperada
+      if (!data || typeof data !== 'object') {
+        throw new Error('Respuesta inválida del servidor');
+      }
+      
+      // Validar supplies
+      if (!Array.isArray(data.supplies)) {
+        console.warn('API no devolvió un array de supplies, usando array vacío');
+        setSupplies([]);
+      } else {
+        setSupplies(data.supplies);
+      }
+      
+      // Validar pagination
+      if (data.pagination && typeof data.pagination === 'object') {
+        setTotalPages(data.pagination.pages || 1);
+      } else {
+        console.warn('API no devolvió pagination válida, usando valores por defecto');
+        setTotalPages(1);
+      }
+      
+      // Validar stats
+      if (data.stats && typeof data.stats === 'object') {
+        setStats({
+          totalItems: data.stats.totalItems || 0,
+          lowStock: data.stats.lowStock || 0
+        });
+      } else {
+        console.warn('API no devolvió stats válidas, usando valores por defecto');
+        setStats({ totalItems: 0, lowStock: 0 });
+      }
+      
+    } catch (err) {
+      console.error('Error loading supplies:', err);
+      error('Error al cargar los insumos. Por favor, intente nuevamente.');
+      
+      // Establecer valores por defecto en caso de error
+      setSupplies([]);
+      setTotalPages(1);
+      setStats({ totalItems: 0, lowStock: 0 });
     } finally {
       setLoading(false);
     }
@@ -115,10 +155,32 @@ export default function SuppliesPage() {
   const loadMovements = async () => {
     try {
       const response = await fetch('/api/supplies/movements?limit=10');
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
-      setMovements(data.movements);
-    } catch (error) {
-      console.error('Error loading movements:', error);
+      
+      // Validar que la respuesta tenga la estructura esperada
+      if (!data || typeof data !== 'object') {
+        throw new Error('Respuesta inválida del servidor');
+      }
+      
+      // Validar movements
+      if (!Array.isArray(data.movements)) {
+        console.warn('API no devolvió un array de movements, usando array vacío');
+        setMovements([]);
+      } else {
+        setMovements(data.movements);
+      }
+      
+    } catch (err) {
+      console.error('Error loading movements:', err);
+      error('Error al cargar los movimientos. Por favor, intente nuevamente.');
+      
+      // Establecer valores por defecto en caso de error
+      setMovements([]);
     }
   };
 

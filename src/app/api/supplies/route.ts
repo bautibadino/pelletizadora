@@ -6,15 +6,20 @@ import { roundToTwoDecimals } from '@/lib/utils';
 // GET - Obtener stock de insumos
 export async function GET(request: NextRequest) {
   try {
+    console.log('GET /api/supplies - Iniciando...');
     await connectDB();
+    console.log('GET /api/supplies - Conexión a DB establecida');
     
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
     const search = searchParams.get('search');
     
+    console.log('GET /api/supplies - Parámetros:', { page, limit, search });
+    
     // Validar parámetros
     if (page < 1 || limit < 1 || limit > 100) {
+      console.log('GET /api/supplies - Parámetros inválidos');
       return NextResponse.json(
         { error: 'Parámetros de paginación inválidos' },
         { status: 400 }
@@ -29,13 +34,23 @@ export async function GET(request: NextRequest) {
       filters.name = { $regex: search, $options: 'i' };
     }
     
+    console.log('GET /api/supplies - Filtros:', filters);
+    
+    // Verificar que el modelo existe
+    console.log('GET /api/supplies - Modelo SupplyStock:', SupplyStock);
+    console.log('GET /api/supplies - Nombre del modelo:', SupplyStock.modelName);
+    
     const supplies = await SupplyStock.find(filters)
       .populate('supplier', 'businessName')
       .sort({ name: 1 })
       .skip(skip)
       .limit(limit);
     
+    console.log('GET /api/supplies - Supplies encontrados:', supplies.length);
+    console.log('GET /api/supplies - Supplies raw:', JSON.stringify(supplies, null, 2));
+    
     const total = await SupplyStock.countDocuments(filters);
+    console.log('GET /api/supplies - Total de supplies:', total);
     
     // Calcular estadísticas
     const stats = await SupplyStock.aggregate([
@@ -56,7 +71,9 @@ export async function GET(request: NextRequest) {
       }
     ]);
     
-    return NextResponse.json({
+    console.log('GET /api/supplies - Stats calculadas:', stats);
+    
+    const response = {
       supplies: supplies || [],
       pagination: {
         page,
@@ -65,9 +82,13 @@ export async function GET(request: NextRequest) {
         pages: Math.ceil(total / limit)
       },
       stats: stats[0] || { totalItems: 0, lowStock: 0 }
-    });
+    };
+    
+    console.log('GET /api/supplies - Respuesta preparada:', response);
+    
+    return NextResponse.json(response);
   } catch (error) {
-    console.error('Get supplies error:', error);
+    console.error('GET /api/supplies - Error completo:', error);
     return NextResponse.json(
       { error: 'Error interno del servidor' },
       { status: 500 }
