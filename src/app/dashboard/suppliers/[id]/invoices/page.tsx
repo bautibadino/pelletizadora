@@ -109,6 +109,9 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
   const [availableChecks, setAvailableChecks] = useState<Check[]>([]);
   const [showCheckModal, setShowCheckModal] = useState(false);
   const [loadingChecks, setLoadingChecks] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
+  const [deleteWarning, setDeleteWarning] = useState<{warning: string, details: {payments: number, supplyMovements: number, production: number, sales: number}} | null>(null);
 
   // Formulario de factura simplificado
   const [formData, setFormData] = useState({
@@ -521,6 +524,67 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
     });
   };
 
+  // Funciones para eliminar facturas
+  const handleDeleteInvoice = async (invoice: Invoice) => {
+    try {
+      const response = await fetch(`/api/invoices/${invoice._id}`, {
+        method: 'DELETE',
+      });
+
+      const data = await response.json();
+
+      if (response.status === 400) {
+        // Dependencias críticas - no se puede eliminar
+        error(`No se puede eliminar la factura: ${data.reason}`);
+        return;
+      }
+
+      if (response.status === 200 && data.warning) {
+        // Hay dependencias pero se puede proceder con advertencia
+        setDeleteWarning(data);
+        setInvoiceToDelete(invoice);
+        setShowDeleteModal(true);
+        return;
+      }
+
+      if (response.ok) {
+        // Eliminación exitosa
+        success('Factura eliminada exitosamente');
+        const { id } = await params;
+        await fetchInvoices(id);
+      } else {
+        error('Error al eliminar la factura');
+      }
+    } catch (err) {
+      console.error('Error deleting invoice:', err);
+      error('Error al eliminar la factura');
+    }
+  };
+
+  const confirmDeleteInvoice = async () => {
+    if (!invoiceToDelete) return;
+
+    try {
+      const response = await fetch(`/api/invoices/${invoiceToDelete._id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        success('Factura eliminada exitosamente');
+        const { id } = await params;
+        await fetchInvoices(id);
+        setShowDeleteModal(false);
+        setInvoiceToDelete(null);
+        setDeleteWarning(null);
+      } else {
+        error('Error al eliminar la factura');
+      }
+    } catch (err) {
+      console.error('Error deleting invoice:', err);
+      error('Error al eliminar la factura');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 p-6">
@@ -698,6 +762,12 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                         className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
                       >
                         Agregar Pago
+                      </button>
+                      <button
+                        onClick={() => handleDeleteInvoice(invoice)}
+                        className="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700"
+                      >
+                        Eliminar
                       </button>
                     </div>
                   </div>
@@ -1528,6 +1598,74 @@ export default function SupplierInvoices({ params }: { params: Promise<{ id: str
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Confirmación de Eliminación */}
+        {showDeleteModal && invoiceToDelete && deleteWarning && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg max-w-md w-full">
+              <div className="p-6">
+                <div className="flex items-center mb-4">
+                  <div className="flex-shrink-0">
+                    <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                      <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-lg font-medium text-gray-900">
+                      Confirmar Eliminación
+                    </h3>
+                    <p className="text-sm text-gray-500">
+                      Factura #{invoiceToDelete.invoiceNumber}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <p className="text-sm text-gray-700 mb-3">
+                    {deleteWarning.warning}
+                  </p>
+                  
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    <h4 className="font-medium text-yellow-800 mb-2">Dependencias que serán eliminadas:</h4>
+                    <ul className="text-sm text-yellow-700 space-y-1">
+                      {deleteWarning.details.payments > 0 && (
+                        <li>• {deleteWarning.details.payments} pago(s) registrado(s)</li>
+                      )}
+                      {deleteWarning.details.supplyMovements > 0 && (
+                        <li>• {deleteWarning.details.supplyMovements} movimiento(s) de insumos</li>
+                      )}
+                      {deleteWarning.details.production > 0 && (
+                        <li>• {deleteWarning.details.production} producción(es) asociada(s)</li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="flex justify-end space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDeleteModal(false);
+                      setInvoiceToDelete(null);
+                      setDeleteWarning(null);
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={confirmDeleteInvoice}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    Eliminar Factura
+                  </button>
+                </div>
               </div>
             </div>
           </div>

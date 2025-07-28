@@ -83,17 +83,83 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // VALIDACIÓN CRÍTICA: Verificar que el número de lote no exista
+    const existingProduction = await Production.findOne({ lotNumber });
+    if (existingProduction) {
+      console.log('Validation failed - lot number already exists:', lotNumber);
+      return NextResponse.json(
+        { error: `El número de lote ${lotNumber} ya existe. Por favor, genere un nuevo número de lote.` },
+        { status: 400 }
+      );
+    }
+
+    // Validar que la cantidad total sea positiva
+    if (Number(totalQuantity) <= 0) {
+      return NextResponse.json(
+        { error: 'La cantidad total debe ser mayor a 0' },
+        { status: 400 }
+      );
+    }
+
+    // Validar que la eficiencia esté en el rango correcto (0-1)
+    if (Number(efficiency) < 0 || Number(efficiency) > 1) {
+      return NextResponse.json(
+        { error: 'La eficiencia debe estar entre 0 y 1 (0% a 100%)' },
+        { status: 400 }
+      );
+    }
+
+    // Validar que haya al menos un consumo de insumo
+    if (!Array.isArray(supplyConsumptions) || supplyConsumptions.length === 0) {
+      return NextResponse.json(
+        { error: 'Debe especificar al menos un consumo de insumo' },
+        { status: 400 }
+      );
+    }
+
     // Verificar stock disponible de insumos
     for (const consumption of supplyConsumptions) {
       const { supplyName, quantity } = consumption;
-      const supplyStock = await SupplyStock.findOne({ name: supplyName });
       
-      if (!supplyStock || supplyStock.quantity < quantity) {
+      if (!supplyName || !quantity || quantity <= 0) {
         return NextResponse.json(
-          { error: `Stock insuficiente de ${supplyName}. Disponible: ${supplyStock?.quantity || 0} ${supplyStock?.unit || 'kg'}` },
+          { error: `Datos inválidos para insumo: ${supplyName}` },
           { status: 400 }
         );
       }
+      
+      const supplyStock = await SupplyStock.findOne({ name: supplyName });
+      
+      if (!supplyStock) {
+        return NextResponse.json(
+          { error: `Insumo ${supplyName} no encontrado en stock` },
+          { status: 400 }
+        );
+      }
+      
+      if (supplyStock.quantity < quantity) {
+        return NextResponse.json(
+          { error: `Stock insuficiente de ${supplyName}. Disponible: ${supplyStock.quantity} ${supplyStock.unit}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validar presentaciones
+    if (!Array.isArray(presentations) || presentations.length === 0) {
+      return NextResponse.json(
+        { error: 'Debe especificar al menos una presentación de pellets' },
+        { status: 400 }
+      );
+    }
+
+    // Verificar que la suma de las presentaciones coincida con la cantidad total
+    const totalPresentations = presentations.reduce((sum, p) => sum + Number(p.quantity), 0);
+    if (Math.abs(totalPresentations - Number(totalQuantity)) > 0.01) {
+      return NextResponse.json(
+        { error: `La suma de las presentaciones (${totalPresentations} kg) no coincide con la cantidad total (${totalQuantity} kg)` },
+        { status: 400 }
+      );
     }
 
     // Crear producción

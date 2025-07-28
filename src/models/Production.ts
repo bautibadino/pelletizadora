@@ -46,6 +46,7 @@ const productionSchema = new mongoose.Schema<IProduction>({
     type: String,
     required: true,
     trim: true,
+    unique: true, // Índice único para prevenir duplicados
   },
   pelletType: {
     type: String,

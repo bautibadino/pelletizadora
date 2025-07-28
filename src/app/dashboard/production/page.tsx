@@ -83,6 +83,7 @@ export default function ProductionPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [availableSupplies, setAvailableSupplies] = useState<AvailableSupply[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
   const { success, error } = useToast();
 
@@ -149,18 +150,32 @@ export default function ProductionPage() {
 
       const response = await fetch(`/api/production?${params}`);
       if (!response.ok) {
-        throw new Error('Error al cargar producciones');
+        throw new Error(`Error al cargar producciones: ${response.status}`);
       }
       
       const data = await response.json();
+      
+      // Validar que la respuesta tenga la estructura esperada
+      if (!data || !Array.isArray(data.productions) || !data.pagination) {
+        console.error('Invalid response structure:', data);
+        setProductions([]);
+        setTotalPages(1);
+        error('❌ Error en la estructura de datos de producciones');
+        return;
+      }
+      
       setProductions(data.productions);
       setTotalPages(data.pagination.pages);
       
       if (data.productions.length === 0 && !loading) {
         success('ℹ️ No se encontraron producciones');
+      } else if (data.productions.length > 0) {
+        success(`📋 ${data.productions.length} producciones cargadas`);
       }
     } catch (err) {
       console.error('Error loading productions:', err);
+      setProductions([]);
+      setTotalPages(1);
       error('❌ Error al cargar producciones. Intente nuevamente');
     } finally {
       setLoading(false);
@@ -171,17 +186,29 @@ export default function ProductionPage() {
     try {
       const response = await fetch('/api/supplies/available');
       if (!response.ok) {
-        throw new Error('Error al cargar insumos disponibles');
+        throw new Error(`Error al cargar insumos disponibles: ${response.status}`);
       }
       
       const data = await response.json();
+      
+      // Validar que la respuesta tenga la estructura esperada
+      if (!data || !Array.isArray(data.supplies)) {
+        console.error('Invalid response structure:', data);
+        setAvailableSupplies([]);
+        error('❌ Error en la estructura de datos de insumos');
+        return;
+      }
+      
       setAvailableSupplies(data.supplies);
       
       if (data.supplies.length === 0) {
         error('⚠️ No hay insumos disponibles para producción. Cree facturas con insumos primero');
+      } else {
+        success(`📦 ${data.supplies.length} insumos disponibles cargados`);
       }
     } catch (err) {
       console.error('Error loading available supplies:', err);
+      setAvailableSupplies([]);
       error('❌ Error al cargar insumos disponibles. Intente nuevamente');
     }
   };
@@ -205,6 +232,12 @@ export default function ProductionPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Prevenir múltiples envíos
+    if (isSubmitting) {
+      error('❌ Ya se está procesando una producción. Espere por favor.');
+      return;
+    }
+    
     console.log('handleSubmit called');
     console.log('formData:', formData);
     console.log('supplyConsumptions:', supplyConsumptions);
@@ -219,6 +252,13 @@ export default function ProductionPage() {
     // Validación de cantidad total
     if (Number(formData.totalQuantity) <= 0) {
       error('❌ La cantidad total debe ser mayor a 0');
+      return;
+    }
+
+    // Validación de eficiencia
+    const efficiencyValue = Number(formData.efficiency);
+    if (isNaN(efficiencyValue) || efficiencyValue < 0 || efficiencyValue > 100) {
+      error('❌ La eficiencia debe estar entre 0% y 100%');
       return;
     }
 
@@ -255,7 +295,16 @@ export default function ProductionPage() {
       }
     }
 
+    // Validar que no haya insumos duplicados
+    const supplyNames = supplyConsumptions.map(c => c.supplyName);
+    const uniqueSupplyNames = [...new Set(supplyNames)];
+    if (supplyNames.length !== uniqueSupplyNames.length) {
+      error('❌ No puede usar el mismo insumo más de una vez');
+      return;
+    }
+
     try {
+      setIsSubmitting(true);
       success('🔄 Procesando producción...');
       
       const response = await fetch('/api/production', {
@@ -302,6 +351,10 @@ export default function ProductionPage() {
           error(`❌ ${errorData.error}`);
         } else if (errorData.error.includes('requeridos')) {
           error(`❌ ${errorData.error}`);
+        } else if (errorData.error.includes('ya existe')) {
+          error(`❌ ${errorData.error}`);
+          // Recargar el número de lote automáticamente
+          loadNextLotNumber();
         } else {
           error(`❌ Error al registrar producción: ${errorData.error}`);
         }
@@ -309,6 +362,8 @@ export default function ProductionPage() {
     } catch (err) {
       console.error('Error creating production:', err);
       error('❌ Error de conexión. Verifique su conexión a internet e intente nuevamente');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -789,16 +844,17 @@ export default function ProductionPage() {
                         setShowAddForm(false);
                         success('❌ Formulario cancelado');
                       }}
-                      className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                      disabled={isSubmitting}
+                      className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                     >
                       Cancelar
                     </button>
                     <button
                       type="submit"
-                      onClick={() => console.log('Button clicked')}
-                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                      disabled={isSubmitting}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Registrar Producción
+                      {isSubmitting ? '🔄 Procesando...' : 'Registrar Producción'}
                     </button>
                     <button
                       type="button"
@@ -807,7 +863,8 @@ export default function ProductionPage() {
                         console.log('formData:', formData);
                         console.log('supplyConsumptions:', supplyConsumptions);
                       }}
-                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 ml-2"
+                      disabled={isSubmitting}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 ml-2 disabled:opacity-50"
                     >
                       Test
                     </button>

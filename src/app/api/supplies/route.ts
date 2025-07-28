@@ -13,6 +13,14 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '10');
     const search = searchParams.get('search');
     
+    // Validar parámetros
+    if (page < 1 || limit < 1 || limit > 100) {
+      return NextResponse.json(
+        { error: 'Parámetros de paginación inválidos' },
+        { status: 400 }
+      );
+    }
+    
     const skip = (page - 1) * limit;
     
     // Construir filtros
@@ -49,7 +57,7 @@ export async function GET(request: NextRequest) {
     ]);
     
     return NextResponse.json({
-      supplies,
+      supplies: supplies || [],
       pagination: {
         page,
         limit,
@@ -89,19 +97,36 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Validar que la cantidad sea un número válido
+    const numericQuantity = Number(quantity);
+    if (isNaN(numericQuantity) || numericQuantity < 0) {
+      return NextResponse.json(
+        { error: 'La cantidad debe ser un número válido mayor o igual a 0' },
+        { status: 400 }
+      );
+    }
+
+    // Validar que el nombre no esté vacío
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      return NextResponse.json(
+        { error: 'El nombre del insumo no puede estar vacío' },
+        { status: 400 }
+      );
+    }
     
     // Buscar stock existente
-    let supplyStock = await SupplyStock.findOne({ name });
+    let supplyStock = await SupplyStock.findOne({ name: name.trim() });
     
     if (supplyStock) {
       // Actualizar stock existente
-      supplyStock.quantity = roundToTwoDecimals(supplyStock.quantity + Number(quantity));
+      supplyStock.quantity = roundToTwoDecimals(supplyStock.quantity + numericQuantity);
       supplyStock.minStock = minStock;
     } else {
       // Crear nuevo stock
       supplyStock = new SupplyStock({
-        name,
-        quantity: roundToTwoDecimals(Number(quantity)),
+        name: name.trim(),
+        quantity: roundToTwoDecimals(numericQuantity),
         unit,
         supplier,
         minStock
@@ -112,9 +137,9 @@ export async function POST(request: NextRequest) {
     
     // Crear movimiento
     const movement = new SupplyMovement({
-      supplyName: name,
+      supplyName: name.trim(),
       type: 'entrada',
-      quantity: roundToTwoDecimals(Number(quantity)),
+      quantity: roundToTwoDecimals(numericQuantity),
       unit,
       date: new Date(),
       supplier,

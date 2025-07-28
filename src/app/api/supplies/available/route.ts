@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
       .sort({ name: 1 });
     
     return NextResponse.json({
-      supplies
+      supplies: supplies || []
     });
   } catch (error) {
     console.error('Get available supplies error:', error);
