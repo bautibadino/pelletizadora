@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import { Invoice } from '@/models/Invoice';
 import { SupplierPayment } from '@/models/Supplier';
-import { SupplyStock, SupplyMovement } from '@/models/Stock';
 import { Production } from '@/models/Production';
 import { Sale } from '@/models/Sale';
+import { Stock, StockMovement, SupplyStock, SupplyMovement } from '@/models/Stock';
+import { roundToTwoDecimals } from '@/lib/utils';
 
 // DELETE - Eliminar factura con verificación de dependencias
 export async function DELETE(

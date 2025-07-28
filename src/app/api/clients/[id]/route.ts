@@ -7,11 +7,11 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const resolvedParams = await params;
   try {
     await connectDB();
     
-    const client = await Client.findById(resolvedParams.id);
+    const { id } = await params;
+    const client = await Client.findById(id);
     
     if (!client) {
       return NextResponse.json(
@@ -35,7 +35,6 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const resolvedParams = await params;
   try {
     await connectDB();
     
@@ -48,10 +47,12 @@ export async function PUT(
       );
     }
 
+    const { id } = await params;
+
     // Verificar si ya existe otro cliente con el mismo CUIT
     const existingClient = await Client.findOne({ 
       cuit, 
-      _id: { $ne: resolvedParams.id } 
+      _id: { $ne: id } 
     });
     
     if (existingClient) {
@@ -62,7 +63,7 @@ export async function PUT(
     }
 
     const client = await Client.findByIdAndUpdate(
-      resolvedParams.id,
+      id,
       {
         name,
         company,
@@ -100,11 +101,11 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const resolvedParams = await params;
   try {
     await connectDB();
     
-    const client = await Client.findByIdAndDelete(resolvedParams.id);
+    const { id } = await params;
+    const client = await Client.findByIdAndDelete(id);
     
     if (!client) {
       return NextResponse.json(

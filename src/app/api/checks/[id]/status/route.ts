@@ -7,7 +7,6 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const resolvedParams = await params;
   try {
     await connectDB();
     
@@ -21,7 +20,8 @@ export async function PUT(
       );
     }
     
-    const check = await Check.findById(resolvedParams.id);
+    const { id } = await params;
+    const check = await Check.findById(id);
     
     if (!check) {
       return NextResponse.json(
