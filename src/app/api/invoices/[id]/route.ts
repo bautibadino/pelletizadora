@@ -9,15 +9,15 @@ import { Sale } from '@/models/Sale';
 // DELETE - Eliminar factura con verificación de dependencias
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await connectDB();
     
-    const invoiceId = params.id;
+    const { id } = await params;
     
     // 1. Verificar que la factura existe
-    const invoice = await Invoice.findById(invoiceId);
+    const invoice = await Invoice.findById(id);
     if (!invoice) {
       return NextResponse.json(
         { error: 'Factura no encontrada' },
@@ -26,7 +26,7 @@ export async function DELETE(
     }
 
     // 2. Verificar dependencias críticas
-    const dependencyChecks = await checkDependencies(invoiceId, invoice.invoiceNumber);
+    const dependencyChecks = await checkDependencies(id, invoice.invoiceNumber);
     
     if (dependencyChecks.hasCriticalDependencies) {
       return NextResponse.json({
@@ -46,7 +46,7 @@ export async function DELETE(
     }
 
     // 4. Proceder con la eliminación
-    await deleteInvoiceAndDependencies(invoiceId, invoice.invoiceNumber);
+    await deleteInvoiceAndDependencies(id, invoice.invoiceNumber);
 
     return NextResponse.json({
       message: 'Factura eliminada exitosamente',
