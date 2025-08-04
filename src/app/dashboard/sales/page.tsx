@@ -19,6 +19,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useToast, ToastContainer } from '@/components/Toast';
+import ConfirmModal from '@/components/ConfirmModal';
+import { roundToTwoDecimals, formatCurrency } from '@/lib/utils';
 
 interface Client {
   _id: string;
@@ -57,6 +59,14 @@ export default function SalesPage() {
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false); // Estado para prevenir múltiples clicks
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingSaleData, setPendingSaleData] = useState<{
+    clientName: string;
+    quantity: number;
+    unitPrice: number;
+    totalAmount: number;
+  } | null>(null);
   const [filters, setFilters] = useState({
     clientId: '',
     status: '',
@@ -64,7 +74,7 @@ export default function SalesPage() {
     dateTo: '',
   });
   const router = useRouter();
-  const { success, error } = useToast();
+  const { success, error, warning, info } = useToast();
 
   const [formData, setFormData] = useState({
     clientId: '',
@@ -131,20 +141,60 @@ export default function SalesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Prevenir múltiples clicks
+    if (isSubmitting) {
+      error('❌ Ya se está procesando una venta. Espere por favor.');
+      return;
+    }
+    
     if (!formData.clientId || !formData.quantity || !formData.unitPrice) {
       error('❌ Por favor complete todos los campos requeridos');
       return;
     }
 
+    // Validar que la cantidad sea un número positivo
+    const quantityRequested = parseFloat(formData.quantity);
+    if (isNaN(quantityRequested) || quantityRequested <= 0) {
+      error('❌ La cantidad debe ser un número mayor a 0');
+      return;
+    }
+
+    // Validar que el precio sea un número positivo
+    const unitPrice = parseFloat(formData.unitPrice);
+    if (isNaN(unitPrice) || unitPrice <= 0) {
+      error('❌ El precio unitario debe ser un número mayor a 0');
+      return;
+    }
+
     // Verificar stock disponible de Granel
     const stockAvailable = getStockAvailable();
-    const quantityRequested = parseFloat(formData.quantity);
     if (quantityRequested > stockAvailable) {
       error(`❌ Stock insuficiente. Disponible: ${stockAvailable.toFixed(2)} kg, solicitado: ${quantityRequested.toFixed(2)} kg`);
       return;
     }
 
+    // Confirmar con el usuario antes de procesar
+    const totalAmount = quantityRequested * unitPrice;
+    const selectedClient = clients.find(client => client._id === formData.clientId);
+    const clientName = selectedClient?.name || 'Cliente';
+    
+    const confirmMessage = `¿Confirmar venta?\n\nCliente: ${clientName}\nCantidad: ${quantityRequested.toFixed(2)} kg\nPrecio unitario: $${unitPrice.toFixed(2)}\nTotal: $${totalAmount.toFixed(2)}`;
+    
+    // Guardar datos pendientes y mostrar modal
+    setPendingSaleData({
+      clientName,
+      quantity: quantityRequested,
+      unitPrice,
+      totalAmount
+    });
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmSale = async () => {
+    if (!pendingSaleData) return;
+    
     try {
+      setIsSubmitting(true); // Activar estado de submitting
       success('🔄 Procesando venta...');
       
       const response = await fetch('/api/sales', {
@@ -166,8 +216,7 @@ export default function SalesPage() {
         const clientCreditBalance = getSelectedClientCreditBalance();
         if (clientCreditBalance > 0) {
           try {
-            const totalAmount = parseFloat(formData.quantity) * parseFloat(formData.unitPrice);
-            const amountToApply = Math.min(clientCreditBalance, totalAmount);
+            const amountToApply = Math.min(clientCreditBalance, pendingSaleData.totalAmount);
             
             const creditResponse = await fetch(`/api/clients/${formData.clientId}/apply-credit`, {
               method: 'POST',
@@ -182,16 +231,16 @@ export default function SalesPage() {
 
             if (creditResponse.ok) {
               const creditData = await creditResponse.json();
-              success(`✅ Venta creada exitosamente. Saldo a favor aplicado: ${formatCurrency(amountToApply)}`);
+              success(`✅ Venta creada exitosamente!\n\nCliente: ${pendingSaleData.clientName}\nCantidad: ${pendingSaleData.quantity.toFixed(2)} kg\nTotal: $${pendingSaleData.totalAmount.toFixed(2)}\nSaldo aplicado: $${amountToApply.toFixed(2)}`);
             } else {
-              success('✅ Venta creada exitosamente');
+              success(`✅ Venta creada exitosamente!\n\nCliente: ${pendingSaleData.clientName}\nCantidad: ${pendingSaleData.quantity.toFixed(2)} kg\nTotal: $${pendingSaleData.totalAmount.toFixed(2)}`);
             }
           } catch (creditError) {
             console.error('Error applying credit:', creditError);
-            success('✅ Venta creada exitosamente');
+            success(`✅ Venta creada exitosamente!\n\nCliente: ${pendingSaleData.clientName}\nCantidad: ${pendingSaleData.quantity.toFixed(2)} kg\nTotal: $${pendingSaleData.totalAmount.toFixed(2)}`);
           }
         } else {
-          success('✅ Venta creada exitosamente');
+          success(`✅ Venta creada exitosamente!\n\nCliente: ${pendingSaleData.clientName}\nCantidad: ${pendingSaleData.quantity.toFixed(2)} kg\nTotal: $${pendingSaleData.totalAmount.toFixed(2)}`);
         }
         
         setFormData({
@@ -206,11 +255,15 @@ export default function SalesPage() {
         loadStock(); // Recargar stock después de la venta
       } else {
         const errorData = await response.json();
-        error(`❌ ${errorData.error}`);
+        error(`❌ Error al crear venta: ${errorData.error}`);
       }
     } catch (err) {
       console.error('Error creating sale:', err);
       error('❌ Error de conexión. Verifique su conexión a internet e intente nuevamente');
+    } finally {
+      setIsSubmitting(false); // Desactivar estado de submitting
+      setShowConfirmModal(false);
+      setPendingSaleData(null);
     }
   };
 
@@ -577,10 +630,10 @@ export default function SalesPage() {
                     </button>
                     <button
                       type="submit"
-                      disabled={!formData.clientId || !formData.quantity || !formData.unitPrice}
+                      disabled={!formData.clientId || !formData.quantity || !formData.unitPrice || isSubmitting}
                       className="px-6 py-2 text-sm font-medium text-white bg-purple-600 border border-transparent rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Crear Venta
+                      {isSubmitting ? '🔄 Procesando...' : 'Crear Venta'}
                     </button>
                   </div>
                 </form>
@@ -836,6 +889,23 @@ export default function SalesPage() {
             </div>
           </div>
         )}
+
+        {/* Confirm Modal */}
+        <ConfirmModal
+          isOpen={showConfirmModal}
+          onClose={() => {
+            setShowConfirmModal(false);
+            setPendingSaleData(null);
+            warning('❌ Venta cancelada');
+          }}
+          onConfirm={handleConfirmSale}
+          title="Confirmar Venta"
+          message={pendingSaleData ? `¿Confirmar venta?\n\nCliente: ${pendingSaleData.clientName}\nCantidad: ${pendingSaleData.quantity.toFixed(2)} kg\nPrecio unitario: $${pendingSaleData.unitPrice.toFixed(2)}\nTotal: $${pendingSaleData.totalAmount.toFixed(2)}` : ''}
+          confirmText="Confirmar Venta"
+          cancelText="Cancelar"
+          type="warning"
+          isLoading={isSubmitting}
+        />
 
         {/* Toast Container */}
         <ToastContainer toasts={[]} removeToast={() => {}} />

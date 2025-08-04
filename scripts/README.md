@@ -1,117 +1,136 @@
-# Scripts de Corrección de Producción
+# Scripts de Mantenimiento - Pelletizadora
 
-Este directorio contiene scripts para verificar y corregir problemas en los datos de producción.
+Este directorio contiene scripts para el mantenimiento y corrección de datos en la aplicación Pelletizadora.
 
-## Problemas Identificados
+## 📋 Scripts Disponibles
 
-1. **Lotes duplicados**: Se generaron múltiples producciones con el mismo número de lote
-2. **Error 500 en supplies**: Problemas en la API de insumos
-3. **Falta de validaciones**: Datos inválidos en la base de datos
+### 🔧 Scripts de Producción
 
-## Scripts Disponibles
-
-### 1. `verify-production-data.js`
-**Propósito**: Verificar la integridad de los datos de producción sin hacer cambios.
-
-**Ejecución**:
-```bash
-node scripts/verify-production-data.js
-```
-
-**Verificaciones realizadas**:
-- Lotes duplicados
-- Producciones sin consumos de insumos
-- Producciones sin generación de pellets
-- Eficiencias fuera de rango (0-1)
-- Cantidades inválidas (≤ 0)
-
-### 2. `fix-duplicate-lots.js`
-**Propósito**: Eliminar lotes duplicados manteniendo el registro más antiguo.
-
-**Ejecución**:
-```bash
-node scripts/fix-duplicate-lots.js
-```
-
-**Acciones**:
-- Identifica lotes duplicados
-- Mantiene el registro más antiguo
-- Elimina los duplicados más recientes
-
-### 3. `fix-production-issues.js`
-**Propósito**: Script completo que corrige todos los problemas identificados.
-
-**Ejecución**:
-```bash
-node scripts/fix-production-issues.js
-```
-
-**Correcciones realizadas**:
+#### `fix-production-issues.js`
+**Propósito**: Script completo para corregir problemas de producción
 - Elimina lotes duplicados
-- Corrige eficiencias fuera de rango
+- Corrige eficiencias inválidas
 - Corrige cantidades inválidas
-- Elimina datos huérfanos (consumos y generaciones sin producción)
+- Elimina registros huérfanos
 - Realiza verificación final
 
-## Orden de Ejecución Recomendado
+**Uso**: `node scripts/fix-production-issues.js`
 
-1. **Primero**: Ejecutar `verify-production-data.js` para identificar problemas
-2. **Segundo**: Ejecutar `fix-production-issues.js` para corregir todos los problemas
-3. **Tercero**: Ejecutar `verify-production-data.js` nuevamente para confirmar las correcciones
+#### `verify-production-data.js`
+**Propósito**: Verifica la integridad de los datos de producción
+- Busca lotes duplicados
+- Verifica producciones sin consumos/generaciones
+- Verifica eficiencias y cantidades inválidas
+- Solo reporta, no hace cambios
 
-## Variables de Entorno
+**Uso**: `node scripts/verify-production-data.js`
 
-Los scripts utilizan la variable de entorno `MONGODB_URI` para conectarse a la base de datos:
+#### `fix-duplicate-lots.js`
+**Propósito**: Elimina lotes de producción duplicados
+- Mantiene el lote más antiguo
+- Elimina los duplicados más recientes
+
+**Uso**: `node scripts/fix-duplicate-lots.js`
+
+### 🛒 Scripts de Ventas
+
+#### `check-duplicate-sales.js`
+**Propósito**: Verifica ventas duplicadas sin hacer cambios
+- Identifica ventas con mismo cliente, cantidad y precio en tiempo cercano
+- Muestra detalles de las duplicadas
+- Calcula cantidad y valor total a revertir
+- Solo reporta, no hace cambios
+
+**Uso**: `node scripts/check-duplicate-sales.js`
+
+#### `fix-duplicate-sales.js`
+**Propósito**: Elimina ventas duplicadas y revierte consumo de stock
+- Identifica ventas duplicadas
+- Revierte el consumo de stock
+- Crea movimientos de stock para documentar la reversión
+- Elimina las ventas duplicadas
+
+**Uso**: `node scripts/fix-duplicate-sales.js`
+
+### 🔍 Scripts de Diagnóstico
+
+#### `test-supplies-api.js`
+**Propósito**: Prueba la API de supplies y verifica la base de datos
+- Prueba conexión a MongoDB
+- Verifica colecciones y datos
+- Prueba consultas de supplies y movements
+- Prueba agregaciones de estadísticas
+
+**Uso**: `node scripts/test-supplies-api.js`
+
+#### `clean-debug-logs.js`
+**Propósito**: Limpia logs de debugging de los archivos de API
+- Remueve console.log de debugging
+- Limpia líneas vacías múltiples
+- Mantiene el código limpio para producción
+
+**Uso**: `node scripts/clean-debug-logs.js`
+
+## 🚀 Orden Recomendado de Ejecución
+
+### Para Problemas de Producción:
+1. `verify-production-data.js` - Verificar problemas
+2. `fix-production-issues.js` - Corregir problemas
+
+### Para Problemas de Ventas:
+1. `check-duplicate-sales.js` - Verificar ventas duplicadas
+2. `fix-duplicate-sales.js` - Corregir ventas duplicadas
+
+### Para Problemas de API:
+1. `test-supplies-api.js` - Diagnosticar problemas
+2. `clean-debug-logs.js` - Limpiar logs (después de confirmar que todo funciona)
+
+## ⚠️ Advertencias Importantes
+
+- **Siempre hacer backup** antes de ejecutar scripts que modifican datos
+- **Verificar en desarrollo** antes de ejecutar en producción
+- **Revisar los logs** para confirmar que los cambios son correctos
+- **Los scripts de corrección son irreversibles** - usar con precaución
+
+## 📊 Validaciones Implementadas
+
+### Frontend (Ventas):
+- ✅ Estado `isSubmitting` para prevenir múltiples clicks
+- ✅ Validaciones de cantidad y precio positivos
+- ✅ Confirmación de usuario antes de procesar
+- ✅ Toasts detallados con información de la venta
+- ✅ Botón deshabilitado durante el procesamiento
+
+### Backend (Producción):
+- ✅ Validación de lotes únicos
+- ✅ Validaciones de cantidad y eficiencia
+- ✅ Validaciones de consumos de insumos
+- ✅ Índice único en `lotNumber`
+
+### Backend (Supplies):
+- ✅ Validaciones de paginación
+- ✅ Validaciones de datos de entrada
+- ✅ Respuestas robustas con arrays por defecto
+- ✅ Manejo de errores mejorado
+
+## 🔧 Comandos Útiles
 
 ```bash
-export MONGODB_URI="mongodb://localhost:27017/pelletizadora"
-```
+# Verificar ventas duplicadas
+node scripts/check-duplicate-sales.js
 
-## Validaciones Implementadas
+# Corregir ventas duplicadas
+node scripts/fix-duplicate-sales.js
 
-### Backend (API)
-- ✅ Validación de lotes únicos
-- ✅ Validación de cantidades positivas
-- ✅ Validación de eficiencias en rango (0-1)
-- ✅ Validación de stock disponible
-- ✅ Validación de presentaciones
-- ✅ Manejo mejorado de errores
+# Verificar problemas de producción
+node scripts/verify-production-data.js
 
-### Frontend
-- ✅ Prevención de múltiples envíos
-- ✅ Validación de campos requeridos
-- ✅ Validación de eficiencias (0-100%)
-- ✅ Validación de insumos duplicados
-- ✅ Validación de stock disponible
-- ✅ Manejo mejorado de errores de API
+# Corregir problemas de producción
+node scripts/fix-production-issues.js
 
-### Base de Datos
-- ✅ Índice único en `lotNumber` para prevenir duplicados
-- ✅ Validaciones de esquema en Mongoose
+# Probar API de supplies
+node scripts/test-supplies-api.js
 
-## Notas Importantes
-
-1. **Backup**: Siempre hacer backup de la base de datos antes de ejecutar scripts de corrección
-2. **Producción**: Los scripts están diseñados para ser seguros, pero es recomendable probarlos en un entorno de desarrollo primero
-3. **Logs**: Todos los scripts generan logs detallados de las acciones realizadas
-4. **Rollback**: Los scripts no incluyen funcionalidad de rollback automático
-
-## Problemas Resueltos
-
-### Duplicación de Lotes
-- ✅ Validación a nivel de API
-- ✅ Validación a nivel de base de datos (índice único)
-- ✅ Script de limpieza de duplicados existentes
-
-### Error 500 en Supplies
-- ✅ Mejora en manejo de errores de API
-- ✅ Validación de parámetros de paginación
-- ✅ Validación de estructura de respuesta
-- ✅ Manejo de arrays vacíos
-
-### Validaciones Generales
-- ✅ Validación de datos de entrada
-- ✅ Validación de rangos numéricos
-- ✅ Validación de stock disponible
-- ✅ Prevención de envíos múltiples
-- ✅ Mensajes de error descriptivos 
+# Limpiar logs de debugging
+node scripts/clean-debug-logs.js
+``` 

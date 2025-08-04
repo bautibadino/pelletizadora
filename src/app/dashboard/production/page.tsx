@@ -21,6 +21,7 @@ import {
   Settings
 } from 'lucide-react';
 import { useToast, ToastContainer } from '@/components/Toast';
+import ConfirmModal from '@/components/ConfirmModal';
 import { roundToTwoDecimals, formatCurrency } from '@/lib/utils';
 
 interface Production {
@@ -84,8 +85,15 @@ export default function ProductionPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [availableSupplies, setAvailableSupplies] = useState<AvailableSupply[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingProductionData, setPendingProductionData] = useState<{
+    lotNumber: string;
+    pelletType: string;
+    totalQuantity: number;
+    efficiency: number;
+  } | null>(null);
   const router = useRouter();
-  const { success, error } = useToast();
+  const { success, error, warning, info } = useToast();
 
   const [formData, setFormData] = useState({
     lotNumber: '',
@@ -303,6 +311,19 @@ export default function ProductionPage() {
       return;
     }
 
+    // Guardar datos pendientes y mostrar modal de confirmación
+    setPendingProductionData({
+      lotNumber: formData.lotNumber,
+      pelletType: formData.pelletType,
+      totalQuantity: Number(formData.totalQuantity),
+      efficiency: Number(formData.efficiency)
+    });
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmProduction = async () => {
+    if (!pendingProductionData) return;
+    
     try {
       setIsSubmitting(true);
       success('🔄 Procesando producción...');
@@ -313,10 +334,10 @@ export default function ProductionPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          lotNumber: formData.lotNumber,
-          pelletType: formData.pelletType,
-          totalQuantity: roundToTwoDecimals(Number(formData.totalQuantity)),
-          efficiency: roundToTwoDecimals(Number(formData.efficiency) / 100), // Convertir porcentaje a decimal
+          lotNumber: pendingProductionData.lotNumber,
+          pelletType: pendingProductionData.pelletType,
+          totalQuantity: roundToTwoDecimals(pendingProductionData.totalQuantity),
+          efficiency: roundToTwoDecimals(pendingProductionData.efficiency / 100), // Convertir porcentaje a decimal
           operator: formData.operator || undefined,
           notes: formData.notes || undefined,
           supplyConsumptions,
@@ -331,7 +352,7 @@ export default function ProductionPage() {
 
       if (response.ok) {
         const result = await response.json();
-        success(`✅ Producción ${formData.lotNumber} registrada exitosamente`);
+        success(`✅ Producción ${pendingProductionData.lotNumber} registrada exitosamente`);
         
         // Mostrar resumen de la producción
         const totalConsumed = supplyConsumptions.reduce((sum, c) => sum + Number(c.quantity), 0);
@@ -364,6 +385,8 @@ export default function ProductionPage() {
       error('❌ Error de conexión. Verifique su conexión a internet e intente nuevamente');
     } finally {
       setIsSubmitting(false);
+      setShowConfirmModal(false);
+      setPendingProductionData(null);
     }
   };
 
@@ -943,6 +966,23 @@ export default function ProductionPage() {
             </div>
           </div>
         )}
+
+        {/* Confirm Modal */}
+        <ConfirmModal
+          isOpen={showConfirmModal}
+          onClose={() => {
+            setShowConfirmModal(false);
+            setPendingProductionData(null);
+            warning('❌ Producción cancelada');
+          }}
+          onConfirm={handleConfirmProduction}
+          title="Confirmar Producción"
+          message={pendingProductionData ? `¿Confirmar producción?\n\nLote: ${pendingProductionData.lotNumber}\nTipo: ${pendingProductionData.pelletType}\nCantidad: ${pendingProductionData.totalQuantity.toFixed(2)} kg\nEficiencia: ${pendingProductionData.efficiency.toFixed(1)}%\n\nInsumos a consumir:\n${supplyConsumptions.map(c => `• ${c.supplyName}: ${c.quantity} ${c.unit}`).join('\n')}` : ''}
+          confirmText="Confirmar Producción"
+          cancelText="Cancelar"
+          type="warning"
+          isLoading={isSubmitting}
+        />
 
         {/* Toast Container */}
         <ToastContainer toasts={[]} removeToast={() => {}} />
