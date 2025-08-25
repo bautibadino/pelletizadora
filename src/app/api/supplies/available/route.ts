@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import { SupplyStock } from '@/models/Stock';
+import { Supplier } from '@/models/Supplier';
 
 // GET - Obtener insumos disponibles para producción
 export async function GET(request: NextRequest) {
@@ -8,7 +9,7 @@ export async function GET(request: NextRequest) {
     await connectDB();
     
     const supplies = await SupplyStock.find({ quantity: { $gt: 0 } })
-      .populate('supplier', 'businessName')
+      .populate({ path: 'supplier', model: Supplier, select: 'businessName' })
       .sort({ name: 1 });
     
     return NextResponse.json({

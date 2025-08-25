@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const skip = (page - 1) * limit;
     
     const sales = await Sale.find(filter)
-      .populate('client', 'name company creditBalance')
+      .populate({ path: 'client', model: Client, select: 'name company creditBalance' })
       .sort({ date: -1 })
       .skip(skip)
       .limit(limit);
@@ -127,8 +127,8 @@ export async function POST(request: NextRequest) {
     
     await movement.save();
 
-    // Poblar datos del cliente para la respuesta
-    await sale.populate('client', 'name company');
+    // Poblar datos del cliente para la respuesta (asegurando el modelo)
+    await sale.populate({ path: 'client', model: Client, select: 'name company' });
 
     return NextResponse.json({
       message: 'Venta creada exitosamente',
